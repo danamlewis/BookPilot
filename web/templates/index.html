@@ -1,0 +1,2711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BookPilot - Personal Reading Intelligence</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #F5F3F7;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: #6B4C93;
+            color: white;
+            padding: 4px 0;
+            margin-bottom: 4px;
+            box-shadow: 0 2px 8px rgba(107, 76, 147, 0.3);
+        }
+        
+        header h1 {
+            margin: 0;
+            font-size: 1.3em;
+        }
+        
+        .status-card {
+            background: white;
+            border-radius: 8px;
+            padding: 8px 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 0;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 12px 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .section h2 {
+            margin-bottom: 8px;
+            color: #6B4C93;
+            border-bottom: 2px solid #9B7BB8;
+            padding-bottom: 6px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-size: 1em;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+        
+        .tab.active {
+            color: #6B4C93;
+            border-bottom-color: #9B7BB8;
+            font-weight: bold;
+        }
+        
+        .tab:hover {
+            color: #9B7BB8;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .series-item {
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #9B7BB8;
+        }
+        
+        .series-item.partial {
+            border-left-color: #E67E7E;
+        }
+        
+        .series-item.not-started {
+            border-left-color: #D4A574;
+        }
+        
+        .series-header {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 8px;
+        }
+        
+        .series-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+        
+        .book-list {
+            margin-top: 10px;
+        }
+        
+        .book-item {
+            padding: 8px;
+            background: white;
+            margin: 5px 0;
+            border-radius: 3px;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .book-item-title {
+            flex: 1;
+        }
+        
+        .book-item-actions {
+            display: inline-flex;
+            gap: 4px;
+            margin-left: 8px;
+        }
+        
+        .book-item-actions .action-btn {
+            padding: 4px 8px;
+            font-size: 0.75em;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            background: white;
+        }
+        
+        .book-item-actions .action-btn.icon-btn {
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            padding: 4px;
+            font-size: 0.9em;
+        }
+        
+        .book-item-actions .action-btn:hover {
+            transform: scale(1.1);
+            border-color: #999;
+        }
+        
+        .book-item-actions .action-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .recommendations-container {
+            position: relative;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .recommendations-container .view-toggle {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: #F5F3F7;
+        }
+        
+        .fiction-nonfiction-section {
+            margin-bottom: 15px;
+        }
+        
+        .section-header {
+            position: sticky;
+            top: 0;
+            background: white;
+            padding: 6px 15px;
+            margin: 0 -15px 6px -15px;
+            border-bottom: 3px solid;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .section-header.fiction {
+            color: #6B4C93;
+            border-bottom-color: #9B7BB8;
+            background: linear-gradient(to bottom, #fff, #F5F3F7);
+        }
+        
+        .section-header.nonfiction {
+            color: #7FB069;
+            border-bottom-color: #9BCB7F;
+            background: linear-gradient(to bottom, #fff, #F5F3F7);
+        }
+        
+        .category-header {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #6B4C93;
+            margin: 12px 0 6px 0;
+            padding-bottom: 6px;
+            border-bottom: 2px solid #D4C5E0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        
+        .category-header:hover {
+            color: #9B7BB8;
+        }
+        
+        .category-toggle {
+            font-size: 0.9em;
+            margin-left: 10px;
+            color: #999;
+        }
+        
+        .category-content {
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+        }
+        
+        .category-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin: 0;
+        }
+        
+        .category-content.expanded {
+            max-height: 10000px;
+            opacity: 1;
+        }
+        
+        .collapse-all-btn {
+            font-size: 0.85em;
+            padding: 4px 12px;
+            background: white;
+            border: 1px solid #D4C5E0;
+            border-radius: 4px;
+            color: #6B4C93;
+            cursor: pointer;
+        }
+        
+        .collapse-all-btn:hover {
+            background: #F5F3F7;
+            border-color: #9B7BB8;
+        }
+        
+        .view-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            padding: 6px;
+            background: #F5F3F7;
+            border-radius: 5px;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .view-toggle-btn {
+            padding: 6px 16px;
+            border: 2px solid #D4C5E0;
+            border-radius: 4px;
+            background: white;
+            color: #6B4C93;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+        }
+        
+        .view-toggle-btn:hover {
+            border-color: #9B7BB8;
+            background: #F5F3F7;
+        }
+        
+        .view-toggle-btn.active {
+            background: #6B4C93;
+            border-color: #6B4C93;
+            color: white;
+        }
+        
+        .sort-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            font-size: 0.85em;
+            margin-left: auto;
+        }
+        
+        .collapse-expand-container {
+            display: flex;
+            gap: 8px;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .sort-label {
+            color: #666;
+            margin-right: 5px;
+        }
+        
+        .sort-btn {
+            padding: 4px 12px;
+            border: 1px solid #D4C5E0;
+            border-radius: 4px;
+            background: white;
+            color: #6B4C93;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s ease;
+        }
+        
+        .sort-btn:hover {
+            border-color: #9B7BB8;
+            background: #F5F3F7;
+        }
+        
+        .sort-btn.active {
+            background: #6B4C93;
+            border-color: #6B4C93;
+            color: white;
+        }
+        
+        .author-header {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #6B4C93;
+            margin: 15px 0 8px 0;
+            padding-bottom: 6px;
+            border-bottom: 2px solid #9B7BB8;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        
+        .author-header:hover {
+            color: #9B7BB8;
+        }
+        
+        .author-book-count {
+            font-size: 0.85em;
+            font-weight: normal;
+            color: #666;
+            margin-left: 10px;
+        }
+        
+        .author-toggle {
+            font-size: 0.9em;
+            margin-left: 10px;
+            color: #999;
+        }
+        
+        .author-content {
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+        }
+        
+        .author-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+            margin: 0;
+        }
+        
+        .author-content.expanded {
+            max-height: 10000px;
+            opacity: 1;
+        }
+        
+        .recategorize-btn {
+            padding: 6px 12px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            color: #666;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        
+        .recategorize-btn:hover {
+            border-color: #6B4C93;
+            color: #6B4C93;
+            background: #F5F3F7;
+        }
+        
+        .duplicate-btn {
+            border-color: #ccc;
+            color: #999;
+        }
+        
+        .duplicate-btn:hover {
+            border-color: #FF8C42;
+            color: #FF8C42;
+        }
+        
+        .duplicate-btn.selected {
+            background: #FF8C42;
+            border-color: #FF8C42;
+            color: white;
+        }
+        
+        .duplicate-btn.tapped {
+            animation: tapAnimationDuplicate 0.3s ease;
+        }
+        
+        @keyframes tapAnimationDuplicate {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); background: #FF8C42; border-color: #FF8C42; color: white; }
+            100% { transform: scale(1); }
+        }
+        
+        .hide-author-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: background-color 0.2s;
+            line-height: 1;
+        }
+        
+        .hide-author-btn:hover {
+            background: #cc0000;
+        }
+        
+        .unhide-author-btn {
+            background: #6B4C93;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+        
+        .unhide-author-btn:hover {
+            background: #5a3d7a;
+        }
+        
+        .recommendation-item {
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #7FB069;
+            position: relative;
+        }
+        
+        .recommendation-item.fiction {
+            border-left-color: #9B7BB8;
+        }
+        
+        .recommendation-item.nonfiction {
+            border-left-color: #7FB069;
+        }
+        
+        .recommendation-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .recommendation-title {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .recommendation-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+        
+        .recommendation-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .action-btn {
+            padding: 8px 12px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            min-width: 40px;
+            height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            color: #666;
+            transition: all 0.2s ease;
+        }
+        
+        .action-btn.icon-btn {
+            border-radius: 50%;
+            width: 40px;
+            padding: 8px;
+            font-size: 1.2em;
+        }
+        
+        .action-btn:hover {
+            transform: scale(1.1);
+            border-color: #999;
+        }
+        
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .thumbs-up-btn {
+            border-color: #ccc;
+            color: #999;
+        }
+        
+        .thumbs-up-btn:hover {
+            border-color: #7FB069;
+            color: #7FB069;
+        }
+        
+        .thumbs-up-btn.selected {
+            background: #7FB069;
+            border-color: #7FB069;
+            color: white;
+        }
+        
+        .thumbs-down-btn {
+            border-color: #ccc;
+            color: #999;
+        }
+        
+        .thumbs-down-btn:hover {
+            border-color: #E67E7E;
+            color: #E67E7E;
+        }
+        
+        .thumbs-down-btn.selected {
+            background: #E67E7E;
+            border-color: #E67E7E;
+            color: white;
+        }
+        
+        .thumbs-down-btn.tapped {
+            animation: tapAnimation 0.3s ease;
+        }
+        
+        @keyframes tapAnimation {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); background: #E67E7E; border-color: #E67E7E; color: white; }
+            100% { transform: scale(1); }
+        }
+        
+        .recommendation-item.removing {
+            animation: fadeOut 0.5s ease forwards;
+        }
+        
+        @keyframes fadeOut {
+            0% { 
+                opacity: 1;
+                transform: translateX(0);
+            }
+            100% { 
+                opacity: 0;
+                transform: translateX(-20px);
+                max-height: 0;
+                margin: 0;
+                padding: 0;
+            }
+        }
+        
+        .non-english-btn {
+            border-color: #ccc;
+            color: #999;
+        }
+        
+        .non-english-btn:hover {
+            border-color: #D4A574;
+            color: #D4A574;
+        }
+        
+        .non-english-btn.selected {
+            background: #FFB366;
+            border-color: #FFB366;
+            color: white;
+        }
+        
+        .non-english-btn.tapped {
+            animation: tapAnimationNonEnglish 0.3s ease;
+        }
+        
+        @keyframes tapAnimationNonEnglish {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); background: #FFB366; border-color: #FFB366; color: white; }
+            100% { transform: scale(1); }
+        }
+        
+        .already-read-btn {
+            border-color: #ccc;
+            color: #999;
+        }
+        
+        .already-read-btn:hover {
+            border-color: #9B7BB8;
+            color: #9B7BB8;
+        }
+        
+        .already-read-btn.selected {
+            background: #9B7BB8;
+            border-color: #9B7BB8;
+            color: white;
+        }
+        
+        .already-read-btn.tapped {
+            animation: tapAnimationAlreadyRead 0.3s ease;
+        }
+        
+        @keyframes tapAnimationAlreadyRead {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); background: #9B7BB8; border-color: #9B7BB8; color: white; }
+            100% { transform: scale(1); }
+        }
+        
+        .recommendation-series {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        
+        .recommendation-author-count {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .score {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            margin-left: 10px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .error {
+            background: #E67E7E;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .status-card h2,
+        .section h2 {
+            color: #6B4C93;
+        }
+        
+        .tabs {
+            border-bottom: 2px solid #D4C5E0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>BookPilot: What can I read next?</h1>
+        </div>
+    </header>
+    
+    <div class="container">
+        <!-- Status Card -->
+        <div class="status-card">
+            <div class="status-grid" id="statusGrid">
+                <div class="stat">
+                    <div class="stat-value" id="totalBooks">-</div>
+                    <div class="stat-label">Total Books</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="totalAuthors">-</div>
+                    <div class="stat-label">Authors</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="audiobooks">-</div>
+                    <div class="stat-label">Audiobooks</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="ebooks">-</div>
+                    <div class="stat-label">Ebooks</div>
+                </div>
+            </div>
+            <div style="margin-top: 6px; color: #666; font-size: 0.85em; text-align: center;">
+                <div>Last Libby import: <strong id="lastImport">-</strong> | Last catalog check: <strong id="lastCatalog">-</strong></div>
+            </div>
+        </div>
+        
+        <!-- Main Content Tabs -->
+        <div class="section">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('series')">📖 Series Analysis</button>
+                <button class="tab" onclick="showTab('audiobook')">🎧 Audiobook Recommendations</button>
+                <button class="tab" onclick="showTab('ebook')">📚 Ebook Recommendations</button>
+                <button class="tab" onclick="showTab('books-to-read')">⭐ Books to Read</button>
+            </div>
+            
+            <!-- Series Tab -->
+            <div id="series" class="tab-content active">
+                <div id="seriesContent" class="loading">Loading series analysis...</div>
+            </div>
+            
+            <!-- Audiobook Tab -->
+            <div id="audiobook" class="tab-content">
+                <div id="audiobookContent" class="loading">Loading recommendations...</div>
+            </div>
+            
+            <!-- Ebook Tab -->
+            <div id="ebook" class="tab-content">
+                <div id="ebookContent" class="loading">Loading recommendations...</div>
+            </div>
+            
+            <!-- Books to Read Tab -->
+            <div id="books-to-read" class="tab-content">
+                <div id="booksToReadContent" class="loading">Loading your saved books...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Load status on page load
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('totalBooks').textContent = data.total_books;
+                document.getElementById('totalAuthors').textContent = data.total_authors;
+                document.getElementById('audiobooks').textContent = data.audiobooks;
+                document.getElementById('ebooks').textContent = data.ebooks;
+                document.getElementById('lastImport').textContent = data.last_libby_import;
+                document.getElementById('lastCatalog').textContent = data.last_catalog_check;
+            })
+            .catch(err => console.error('Error loading status:', err));
+        
+        // Tab switching
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+            
+            // Load content for tab
+            if (tabName === 'series' && !document.getElementById('seriesContent').dataset.loaded) {
+                loadSeries();
+            } else if (tabName === 'audiobook' && !document.getElementById('audiobookContent').dataset.loaded) {
+                loadAudiobookRecs();
+            } else if (tabName === 'ebook' && !document.getElementById('ebookContent').dataset.loaded) {
+                loadEbookRecs();
+            } else if (tabName === 'books-to-read') {
+                // Always reload books to read when switching to that tab (to get latest updates)
+                document.getElementById('booksToReadContent').dataset.loaded = 'false';
+                loadBooksToRead();
+            }
+        }
+        
+        // Helper function to build HTML for a series item
+        function buildSeriesItemHTML(series, className) {
+            const unreadBooksHTML = series.unread_books.length > 0 ? `
+                <div class="book-list">
+                    <strong>Missing books:</strong>
+                    ${series.unread_books.slice(0, 5).map(b => `
+                        <div class="book-item" data-title="${b.title}" data-author="${series.author}">
+                            <span class="book-item-title">${b.position ? `#${b.position} ` : ''}${b.title}</span>
+                            <div class="book-item-actions">
+                                <button class="action-btn thumbs-up-btn icon-btn" data-action="thumbs-up" data-title="${b.title}" data-author="${series.author}" title="Thumbs Up">👍</button>
+                                <button class="action-btn thumbs-down-btn icon-btn" data-action="thumbs-down" data-title="${b.title}" data-author="${series.author}" title="Thumbs Down">👎</button>
+                                <button class="action-btn already-read-btn" data-action="already-read" data-title="${b.title}" data-author="${series.author}" title="Already Read">already read</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
+            
+            return `
+                <div class="series-item ${className}">
+                    <div class="series-header">${series.series_name} by ${series.author}</div>
+                    <div class="series-meta">
+                        Read: ${series.books_read}/${series.total_books} (${series.completion_pct.toFixed(0)}%)
+                    </div>
+                    ${unreadBooksHTML}
+                </div>
+            `;
+        }
+        
+        // Helper function to build author-grouped series HTML
+        function buildAuthorGroupedSeriesHTML(seriesList, sectionType, sortType = 'alpha') {
+                        // Group series by author
+                        const byAuthor = {};
+                        seriesList.forEach(series => {
+                            const author = series.author;
+                            if (!byAuthor[author]) {
+                                byAuthor[author] = [];
+                            }
+                            byAuthor[author].push(series);
+                        });
+                        
+                        // Sort authors by count or alphabetically
+                        let sortedAuthors;
+                        if (sortType === 'count') {
+                            // Sort by number of series (descending)
+                            sortedAuthors = Object.keys(byAuthor).sort((a, b) => byAuthor[b].length - byAuthor[a].length);
+                        } else {
+                            // Sort alphabetically by last name
+                            sortedAuthors = Object.keys(byAuthor).sort((a, b) => {
+                                const getLastName = (name) => {
+                                    const parts = name.trim().split(/\s+/);
+                                    return parts.length > 1 ? parts[parts.length - 1] : parts[0];
+                                };
+                                const lastNameA = getLastName(a);
+                                const lastNameB = getLastName(b);
+                                const compare = lastNameA.localeCompare(lastNameB);
+                                return compare !== 0 ? compare : a.localeCompare(b);
+                            });
+                        }
+                        
+                        let authorGroupsHTML = '';
+                        sortedAuthors.forEach(author => {
+                            const authorSeries = byAuthor[author];
+                            authorGroupsHTML += `
+                                <div class="series-author-group" style="margin-bottom: 15px;">
+                                    <div class="series-author-header" style="cursor: pointer; padding: 8px; background-color: #e8e8e8; border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;" onclick="toggleSeriesAuthorGroup(this)">
+                                        <strong>${author} (${authorSeries.length} series${authorSeries.length !== 1 ? '' : ''})</strong>
+                                        <span class="series-author-toggle">▼</span>
+                                    </div>
+                                    <div class="series-author-content" style="display: block; padding-left: 10px;">
+                            `;
+                            authorSeries.forEach(series => {
+                                authorGroupsHTML += buildSeriesItemHTML(series, sectionType);
+                            });
+                            authorGroupsHTML += `</div></div>`;
+                        });
+                        
+            return authorGroupsHTML;
+        }
+        
+        // Load series analysis
+        function loadSeries() {
+            fetch('/api/series')
+                .then(r => r.json())
+                .then(data => {
+                    const content = document.getElementById('seriesContent');
+                    content.innerHTML = '';
+                    content.dataset.loaded = 'true';
+                    
+                    // Summary with collapse/expand buttons on same row
+                    const summary = document.createElement('div');
+                    summary.style.display = 'flex';
+                    summary.style.justifyContent = 'space-between';
+                    summary.style.alignItems = 'center';
+                    summary.style.marginBottom = '15px';
+                    
+                    const summaryText = document.createElement('p');
+                    summaryText.style.margin = '0';
+                    summaryText.innerHTML = `<strong>Partially Read Series:</strong> ${data.partial_series} | 
+                        <strong>Not Started Series:</strong> ${data.not_started_series} | 
+                        <strong>Completed Series:</strong> ${data.complete_series}`;
+                    summary.appendChild(summaryText);
+                    
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.style.display = 'flex';
+                    buttonContainer.style.gap = '8px';
+                    buttonContainer.style.alignItems = 'center';
+                    
+                    const collapseAllBtn = document.createElement('button');
+                    collapseAllBtn.className = 'collapse-all-btn';
+                    collapseAllBtn.textContent = 'Collapse All';
+                    collapseAllBtn.onclick = () => {
+                        content.querySelectorAll('.series-author-content').forEach(authorContent => {
+                            authorContent.style.display = 'none';
+                            const header = authorContent.closest('.series-author-group').querySelector('.series-author-header');
+                            if (header) {
+                                const toggle = header.querySelector('.series-author-toggle');
+                                if (toggle) toggle.textContent = '▶';
+                            }
+                        });
+                    };
+                    
+                    const expandAllBtn = document.createElement('button');
+                    expandAllBtn.className = 'collapse-all-btn';
+                    expandAllBtn.textContent = 'Expand All';
+                    expandAllBtn.onclick = () => {
+                        content.querySelectorAll('.series-author-content').forEach(authorContent => {
+                            authorContent.style.display = 'block';
+                            const header = authorContent.closest('.series-author-group').querySelector('.series-author-header');
+                            if (header) {
+                                const toggle = header.querySelector('.series-author-toggle');
+                                if (toggle) toggle.textContent = '▼';
+                            }
+                        });
+                    };
+                    
+                    buttonContainer.appendChild(collapseAllBtn);
+                    buttonContainer.appendChild(expandAllBtn);
+                    summary.appendChild(buttonContainer);
+                    content.appendChild(summary);
+                    
+                    // Use event delegation on the content container for all button clicks
+                    content.addEventListener('click', (e) => {
+                        const btn = e.target.closest('[data-action]');
+                        if (!btn) return;
+                        
+                        const action = btn.dataset.action;
+                        const title = btn.dataset.title;
+                        const author = btn.dataset.author;
+                        
+                        if (!title || !author) return;
+                        
+                        if (action === 'thumbs-up') {
+                            handleThumbsUp('ebook', title, author);
+                        } else if (action === 'thumbs-down') {
+                            handleThumbsDown('ebook', title, author);
+                        } else if (action === 'already-read') {
+                            handleAlreadyRead('ebook', title, author);
+                        }
+                    });
+                    
+                    // Build HTML in batches for better performance
+                    let html = '';
+                    
+                    // Store series data for re-sorting
+                    const partial = data.series.filter(s => s.status === 'partial');
+                    const notStarted = data.series.filter(s => s.status === 'not_started');
+                    content.dataset.partialSeries = JSON.stringify(partial);
+                    content.dataset.notStartedSeries = JSON.stringify(notStarted);
+                    
+                    // Partially read series - collapsible section
+                    if (partial.length > 0) {
+                        const partialSortType = localStorage.getItem('seriesPartialSort') || 'alpha';
+                        html += `
+                            <div class="series-section-container" data-section-type="partial" style="margin-top: 20px;">
+                                <div class="series-section-header" style="cursor: pointer; padding: 10px; background-color: #f5f5f5; border-radius: 5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;" onclick="toggleSeriesSection(this.closest('.series-section-header'))">
+                                        <h3 style="margin: 0;">Partially Read Series (${partial.length})</h3>
+                                        <span class="series-section-toggle">▼</span>
+                                    </div>
+                                    <div class="series-sort-controls" style="display: flex; align-items: center; gap: 5px; margin-left: 10px;" onclick="event.stopPropagation();">
+                                        <span style="font-size: 0.9em; color: #666;">Sort:</span>
+                                        <button class="series-sort-btn ${partialSortType === 'count' ? 'active' : ''}" data-sort="count" data-section="partial" onclick="sortSeriesSection('partial', 'count', this)" style="padding: 4px 8px; font-size: 0.85em; border: 1px solid #ccc; background: ${partialSortType === 'count' ? '#9B7BB8' : '#fff'}; color: ${partialSortType === 'count' ? '#fff' : '#333'}; border-radius: 3px; cursor: pointer;">By Count</button>
+                                        <button class="series-sort-btn ${partialSortType === 'alpha' ? 'active' : ''}" data-sort="alpha" data-section="partial" onclick="sortSeriesSection('partial', 'alpha', this)" style="padding: 4px 8px; font-size: 0.85em; border: 1px solid #ccc; background: ${partialSortType === 'alpha' ? '#9B7BB8' : '#fff'}; color: ${partialSortType === 'alpha' ? '#fff' : '#333'}; border-radius: 3px; cursor: pointer;">A-Z</button>
+                                    </div>
+                                </div>
+                                <div class="series-section-content" style="display: block;" data-sort-type="${partialSortType}">
+                                    ${buildAuthorGroupedSeriesHTML(partial, 'partial', partialSortType)}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Not started (unread) series - collapsible section
+                    if (notStarted.length > 0) {
+                        const notStartedSortType = localStorage.getItem('seriesNotStartedSort') || 'alpha';
+                        html += `
+                            <div class="series-section-container" data-section-type="not-started" style="margin-top: 20px;">
+                                <div class="series-section-header" style="cursor: pointer; padding: 10px; background-color: #f5f5f5; border-radius: 5px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;" onclick="toggleSeriesSection(this.closest('.series-section-header'))">
+                                        <h3 style="margin: 0;">Not Started Series (${notStarted.length})</h3>
+                                        <span class="series-section-toggle">▼</span>
+                                    </div>
+                                    <div class="series-sort-controls" style="display: flex; align-items: center; gap: 5px; margin-left: 10px;" onclick="event.stopPropagation();">
+                                        <span style="font-size: 0.9em; color: #666;">Sort:</span>
+                                        <button class="series-sort-btn ${notStartedSortType === 'count' ? 'active' : ''}" data-sort="count" data-section="not-started" onclick="sortSeriesSection('not-started', 'count', this)" style="padding: 4px 8px; font-size: 0.85em; border: 1px solid #ccc; background: ${notStartedSortType === 'count' ? '#9B7BB8' : '#fff'}; color: ${notStartedSortType === 'count' ? '#fff' : '#333'}; border-radius: 3px; cursor: pointer;">By Count</button>
+                                        <button class="series-sort-btn ${notStartedSortType === 'alpha' ? 'active' : ''}" data-sort="alpha" data-section="not-started" onclick="sortSeriesSection('not-started', 'alpha', this)" style="padding: 4px 8px; font-size: 0.85em; border: 1px solid #ccc; background: ${notStartedSortType === 'alpha' ? '#9B7BB8' : '#fff'}; color: ${notStartedSortType === 'alpha' ? '#fff' : '#333'}; border-radius: 3px; cursor: pointer;">A-Z</button>
+                                    </div>
+                                </div>
+                                <div class="series-section-content" style="display: block;" data-sort-type="${notStartedSortType}">
+                                    ${buildAuthorGroupedSeriesHTML(notStarted, 'not-started', notStartedSortType)}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Insert all HTML at once
+                    content.insertAdjacentHTML('beforeend', html);
+                })
+                .catch(err => {
+                    document.getElementById('seriesContent').innerHTML = 
+                        `<div class="error">Error loading series: ${err.message}</div>`;
+                });
+        }
+        
+        // Load audiobook recommendations
+        function loadAudiobookRecs() {
+            fetch('/api/recommendations/audiobook')
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP error! status: ${r.status}`);
+                    }
+                    const contentType = r.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        return r.text().then(text => {
+                            throw new Error(`Expected JSON but got: ${text.substring(0, 100)}`);
+                        });
+                    }
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    const content = document.getElementById('audiobookContent');
+                    content.innerHTML = '';
+                    content.dataset.loaded = 'true';
+                    
+                    // Update tab button with count
+                    const audiobookTab = document.querySelector('button[onclick="showTab(\'audiobook\')"]');
+                    if (audiobookTab) {
+                        audiobookTab.textContent = `🎧 Audiobook Recommendations (${data.total})`;
+                    }
+                    
+                    const container = document.createElement('div');
+                    container.className = 'recommendations-container';
+                    
+                    // Add view toggle with sort controls and collapse/expand buttons
+                    const viewToggle = document.createElement('div');
+                    viewToggle.className = 'view-toggle';
+                    
+                    // Sort on the left (where category/author buttons used to be)
+                    const sortControls = document.createElement('div');
+                    sortControls.className = 'sort-controls';
+                    sortControls.innerHTML = `
+                        <span class="sort-label">Sort:</span>
+                        <button class="sort-btn active" data-sort="count" onclick="sortRecommendations('audiobook', 'count', this)">By Count</button>
+                        <button class="sort-btn" data-sort="alpha" onclick="sortRecommendations('audiobook', 'alpha', this)">A-Z</button>
+                    `;
+                    
+                    const collapseExpandContainer = document.createElement('div');
+                    collapseExpandContainer.className = 'collapse-expand-container';
+                    collapseExpandContainer.style.display = 'flex';
+                    collapseExpandContainer.style.gap = '8px';
+                    collapseExpandContainer.style.marginLeft = 'auto';
+                    
+                    viewToggle.appendChild(sortControls);
+                    viewToggle.appendChild(collapseExpandContainer);
+                    container.appendChild(viewToggle);
+                    
+                    container.collapseExpandContainer = collapseExpandContainer;
+                    container.dataset.recommendations = JSON.stringify(data);
+                    container.dataset.currentView = 'author';
+                    container.dataset.sortType = 'count';
+                    
+                    renderAuthorView(container, data, 'audiobook');
+                    
+                    content.appendChild(container);
+                })
+                .catch(err => {
+                    document.getElementById('audiobookContent').innerHTML = 
+                        `<div class="error">Error loading recommendations: ${err.message}</div>`;
+                });
+        }
+        
+        // Load ebook recommendations
+        function loadEbookRecs() {
+            fetch('/api/recommendations/ebook')
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP error! status: ${r.status}`);
+                    }
+                    const contentType = r.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        return r.text().then(text => {
+                            throw new Error(`Expected JSON but got: ${text.substring(0, 100)}`);
+                        });
+                    }
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    const content = document.getElementById('ebookContent');
+                    content.innerHTML = '';
+                    content.dataset.loaded = 'true';
+                    
+                    // Update tab button with count
+                    const ebookTab = document.querySelector('button[onclick="showTab(\'ebook\')"]');
+                    if (ebookTab) {
+                        ebookTab.textContent = `📚 Ebook Recommendations (${data.total})`;
+                    }
+                    
+                    const container = document.createElement('div');
+                    container.className = 'recommendations-container';
+                    
+                    const viewToggle = document.createElement('div');
+                    viewToggle.className = 'view-toggle';
+                    
+                    const sortControls = document.createElement('div');
+                    sortControls.className = 'sort-controls';
+                    sortControls.innerHTML = `
+                        <span class="sort-label">Sort:</span>
+                        <button class="sort-btn active" data-sort="count" onclick="sortRecommendations('ebook', 'count', this)">By Count</button>
+                        <button class="sort-btn" data-sort="alpha" onclick="sortRecommendations('ebook', 'alpha', this)">A-Z</button>
+                    `;
+                    
+                    const collapseExpandContainer = document.createElement('div');
+                    collapseExpandContainer.className = 'collapse-expand-container';
+                    collapseExpandContainer.style.display = 'flex';
+                    collapseExpandContainer.style.gap = '8px';
+                    collapseExpandContainer.style.marginLeft = 'auto';
+                    
+                    viewToggle.appendChild(sortControls);
+                    viewToggle.appendChild(collapseExpandContainer);
+                    container.appendChild(viewToggle);
+                    
+                    container.collapseExpandContainer = collapseExpandContainer;
+                    container.dataset.recommendations = JSON.stringify(data);
+                    container.dataset.currentView = 'author';
+                    container.dataset.sortType = 'count';
+                    
+                    renderAuthorView(container, data, 'ebook');
+                    
+                    setTimeout(() => {
+                        const authorSection = container.querySelector('.author-view-section');
+                        if (authorSection) {
+                            toggleAllAuthors(authorSection, true);
+                        }
+                    }, 100);
+                    
+                    content.appendChild(container);
+                })
+                .catch(err => {
+                    document.getElementById('ebookContent').innerHTML = 
+                        `<div class="error">Error loading recommendations: ${err.message}</div>`;
+                });
+        }
+        
+        // Create Fiction/Non-Fiction section with categories
+        function createFictionNonFictionSection(type, categories, formatType, container) {
+            const section = document.createElement('div');
+            section.className = 'fiction-nonfiction-section';
+            
+            const header = document.createElement('div');
+            header.className = `section-header ${type.toLowerCase().replace('-', '')}`;
+            const headerContent = document.createElement('div');
+            headerContent.style.display = 'flex';
+            headerContent.style.alignItems = 'center';
+            headerContent.style.justifyContent = 'space-between';
+            headerContent.style.width = '100%';
+            headerContent.innerHTML = `<h2 style="margin: 0;">${type}</h2>`;
+            header.appendChild(headerContent);
+            section.appendChild(header);
+            
+            
+            // Categories are already sorted by renderCategoryView, just use them as-is
+            Object.entries(categories).forEach(([category, recs]) => {
+                const categoryContainer = document.createElement('div');
+                categoryContainer.className = 'category-container';
+                
+                const categoryHeader = document.createElement('div');
+                categoryHeader.className = 'category-header';
+                categoryHeader.innerHTML = `
+                    <span>${category} (${recs.length})</span>
+                    <span class="category-toggle">▼</span>
+                `;
+                
+                const categoryContent = document.createElement('div');
+                categoryContent.className = 'category-content expanded';
+                
+                categoryHeader.onclick = () => {
+                    const isCollapsed = categoryContent.classList.contains('collapsed');
+                    if (isCollapsed) {
+                        categoryContent.classList.remove('collapsed');
+                        categoryContent.classList.add('expanded');
+                        categoryHeader.querySelector('.category-toggle').textContent = '▼';
+                    } else {
+                        categoryContent.classList.remove('expanded');
+                        categoryContent.classList.add('collapsed');
+                        categoryHeader.querySelector('.category-toggle').textContent = '▶';
+                    }
+                    // Update stored state when manually toggled
+                    if (container) {
+                        getCollapseState(container);
+                    }
+                };
+                
+                categoryContainer.appendChild(categoryHeader);
+                
+                // Group books by author and series for better organization
+                const byAuthorInCategory = {};
+                recs.forEach(rec => {
+                    const author = rec.author;
+                    if (!byAuthorInCategory[author]) {
+                        byAuthorInCategory[author] = [];
+                    }
+                    byAuthorInCategory[author].push(rec);
+                });
+                
+                // Sort authors by number of books
+                const sortedAuthors = Object.keys(byAuthorInCategory).sort(
+                    (a, b) => byAuthorInCategory[b].length - byAuthorInCategory[a].length
+                );
+                
+                sortedAuthors.forEach(author => {
+                    const authorRecs = byAuthorInCategory[author];
+                    
+                    // Group by series
+                    const seriesGroups = {};
+                    const standaloneBooks = [];
+                    
+                    authorRecs.forEach(rec => {
+                        if (rec.series_name) {
+                            const seriesKey = `${rec.series_name}`;
+                            if (!seriesGroups[seriesKey]) {
+                                seriesGroups[seriesKey] = [];
+                            }
+                            seriesGroups[seriesKey].push(rec);
+                        } else {
+                            standaloneBooks.push(rec);
+                        }
+                    });
+                    
+                    // Sort series books by position
+                    Object.keys(seriesGroups).forEach(seriesKey => {
+                        seriesGroups[seriesKey].sort((a, b) => {
+                            const posA = a.series_position || 999;
+                            const posB = b.series_position || 999;
+                            return posA - posB;
+                        });
+                    });
+                    
+                    // Sort series groups by first book's position
+                    const sortedSeriesKeys = Object.keys(seriesGroups).sort((a, b) => {
+                        const firstA = seriesGroups[a][0].series_position || 999;
+                        const firstB = seriesGroups[b][0].series_position || 999;
+                        return firstA - firstB;
+                    });
+                    
+                    // Sort standalone books by similarity score
+                    standaloneBooks.sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0));
+                    
+                    // Render series groups first
+                    sortedSeriesKeys.forEach(seriesKey => {
+                        const seriesBooks = seriesGroups[seriesKey];
+                        if (seriesBooks.length > 1) {
+                            // Only group if there are multiple books in the series
+                            const seriesHeader = document.createElement('div');
+                            seriesHeader.className = 'series-group-header';
+                            seriesHeader.style.marginTop = '15px';
+                            seriesHeader.style.marginBottom = '8px';
+                            seriesHeader.style.paddingBottom = '5px';
+                            seriesHeader.style.borderBottom = '1px solid #D4C5E0';
+                            seriesHeader.style.fontWeight = 'bold';
+                            seriesHeader.style.color = '#6B4C93';
+                            seriesHeader.style.fontSize = '0.95em';
+                            seriesHeader.textContent = `${author} - ${seriesKey} (${seriesBooks.length} books)`;
+                            categoryContent.appendChild(seriesHeader);
+                        }
+                        
+                        seriesBooks.forEach(rec => {
+                            const div = createRecommendationItem(rec, formatType);
+                            div.className += ` ${type.toLowerCase().replace('-', '')}`;
+                            categoryContent.appendChild(div);
+                        });
+                    });
+                    
+                    // Then render standalone books
+                    standaloneBooks.forEach(rec => {
+                        const div = createRecommendationItem(rec, formatType);
+                        div.className += ` ${type.toLowerCase().replace('-', '')}`;
+                        categoryContent.appendChild(div);
+                    });
+                });
+                
+                categoryContainer.appendChild(categoryContent);
+                section.appendChild(categoryContainer);
+            });
+            
+            return section;
+        }
+        
+        // Sort recommendations
+        function sortRecommendations(formatType, sortType, button) {
+            const content = document.getElementById(`${formatType}Content`);
+            const container = content.querySelector('.recommendations-container');
+            if (!container) return;
+            
+            // Update sort button states
+            container.querySelectorAll('.sort-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            button.classList.add('active');
+            
+            // Store sort preference
+            container.dataset.sortType = sortType;
+            
+            // Get current view
+            const currentView = container.dataset.currentView || 'category';
+            const data = JSON.parse(container.dataset.recommendations);
+            
+            // Remove existing sections
+            const existingSections = container.querySelectorAll('.fiction-nonfiction-section, .author-view-section');
+            existingSections.forEach(section => section.remove());
+            
+            // Re-render with new sort
+            if (currentView === 'author') {
+                renderAuthorView(container, data, formatType);
+            } else {
+                renderCategoryView(container, data, formatType);
+            }
+        }
+        
+        // Render category view
+        function renderCategoryView(container, data, formatType) {
+            // Get collapse state before removing sections (preserves state from all views)
+            const collapseState = getCollapseState(container);
+            
+            // Clear and set up collapse/expand buttons for category view
+            if (container.collapseExpandContainer) {
+                container.collapseExpandContainer.innerHTML = '';
+                const collapseAllBtn = document.createElement('button');
+                collapseAllBtn.className = 'collapse-all-btn';
+                collapseAllBtn.textContent = 'Collapse All';
+                collapseAllBtn.onclick = () => {
+                    container.querySelectorAll('.fiction-nonfiction-section').forEach(sec => {
+                        sec.querySelectorAll('.category-content').forEach(content => {
+                            content.classList.remove('expanded');
+                            content.classList.add('collapsed');
+                            const header = content.previousElementSibling;
+                            if (header) {
+                                const toggle = header.querySelector('.category-toggle');
+                                if (toggle) toggle.textContent = '▶';
+                            }
+                        });
+                    });
+                    getCollapseState(container);
+                };
+                const expandAllBtn = document.createElement('button');
+                expandAllBtn.className = 'collapse-all-btn';
+                expandAllBtn.textContent = 'Expand All';
+                expandAllBtn.onclick = () => {
+                    container.querySelectorAll('.fiction-nonfiction-section').forEach(sec => {
+                        sec.querySelectorAll('.category-content').forEach(content => {
+                            content.classList.remove('collapsed');
+                            content.classList.add('expanded');
+                            const header = content.previousElementSibling;
+                            if (header) {
+                                const toggle = header.querySelector('.category-toggle');
+                                if (toggle) toggle.textContent = '▼';
+                            }
+                        });
+                    });
+                    getCollapseState(container);
+                };
+                container.collapseExpandContainer.appendChild(collapseAllBtn);
+                container.collapseExpandContainer.appendChild(expandAllBtn);
+            }
+            
+            if (data.categorized && data.recommendations) {
+                // Re-sort categories based on sort preference
+                const sortType = container.dataset.sortType || 'count';
+                
+                if (data.recommendations.Fiction && Object.keys(data.recommendations.Fiction).length > 0) {
+                    const fictionCategories = data.recommendations.Fiction;
+                    const sortedFiction = sortCategories(fictionCategories, sortType);
+                    const fictionSection = createFictionNonFictionSection('Fiction', sortedFiction, formatType, container);
+                    container.appendChild(fictionSection);
+                }
+                
+                if (data.recommendations['Non-Fiction'] && Object.keys(data.recommendations['Non-Fiction']).length > 0) {
+                    const nonfictionCategories = data.recommendations['Non-Fiction'];
+                    const sortedNonfiction = sortCategories(nonfictionCategories, sortType);
+                    const nonfictionSection = createFictionNonFictionSection('Non-Fiction', sortedNonfiction, formatType, container);
+                    container.appendChild(nonfictionSection);
+                }
+            }
+            
+            // Restore collapse state (will restore category states from stored state)
+            restoreCollapseState(container, collapseState);
+            container.dataset.currentView = 'category';
+        }
+        
+        // Sort categories by count or alphabetically
+        function sortCategories(categories, sortType) {
+            if (sortType === 'alpha') {
+                return Object.keys(categories).sort((a, b) => a.localeCompare(b))
+                    .reduce((obj, key) => {
+                        obj[key] = categories[key];
+                        return obj;
+                    }, {});
+            } else {
+                return Object.keys(categories).sort((a, b) => categories[b].length - categories[a].length)
+                    .reduce((obj, key) => {
+                        obj[key] = categories[key];
+                        return obj;
+                    }, {});
+            }
+        }
+        
+        // Get collapse state from current view and merge with stored state
+        function getCollapseState(container) {
+            // Get existing stored state from dataset
+            let storedState = {
+                categories: {},
+                authors: {}
+            };
+            if (container.dataset.collapseState) {
+                try {
+                    storedState = JSON.parse(container.dataset.collapseState);
+                } catch (e) {
+                    console.error('Error parsing collapse state:', e);
+                }
+            }
+            
+            // Update with current view's collapse states
+            const currentState = {
+                categories: {...storedState.categories},
+                authors: {...storedState.authors}
+            };
+            
+            // Get category collapse states
+            container.querySelectorAll('.category-container').forEach(catContainer => {
+                const header = catContainer.querySelector('.category-header');
+                const content = catContainer.querySelector('.category-content');
+                if (header && content) {
+                    const categoryName = header.textContent.split(' (')[0].trim();
+                    currentState.categories[categoryName] = content.classList.contains('collapsed');
+                }
+            });
+            
+            // Get author collapse states
+            container.querySelectorAll('.author-container').forEach(authContainer => {
+                const header = authContainer.querySelector('.author-header');
+                const content = authContainer.querySelector('.author-content');
+                if (header && content) {
+                    const authorName = header.textContent.split(' (')[0].trim();
+                    currentState.authors[authorName] = content.classList.contains('collapsed');
+                }
+            });
+            
+            // Store updated state in dataset
+            container.dataset.collapseState = JSON.stringify(currentState);
+            
+            return currentState;
+        }
+        
+        // Restore collapse state
+        function restoreCollapseState(container, state) {
+            // Restore category states
+            container.querySelectorAll('.category-container').forEach(catContainer => {
+                const header = catContainer.querySelector('.category-header');
+                const content = catContainer.querySelector('.category-content');
+                const toggle = header ? header.querySelector('.category-toggle') : null;
+                if (header && content && toggle) {
+                    const categoryName = header.textContent.split(' (')[0].trim();
+                    if (state.categories[categoryName]) {
+                        content.classList.remove('expanded');
+                        content.classList.add('collapsed');
+                        toggle.textContent = '▶';
+                    }
+                }
+            });
+            
+            // Restore author states
+            container.querySelectorAll('.author-container').forEach(authContainer => {
+                const header = authContainer.querySelector('.author-header');
+                const content = authContainer.querySelector('.author-content');
+                const toggle = header ? header.querySelector('.author-toggle') : null;
+                if (header && content && toggle) {
+                    const authorName = header.textContent.split(' (')[0].trim();
+                    if (state.authors[authorName]) {
+                        content.classList.remove('expanded');
+                        content.classList.add('collapsed');
+                        toggle.textContent = '▶';
+                    }
+                }
+            });
+        }
+        
+        // Render author view
+        function renderAuthorView(container, data, formatType) {
+            // Get collapse state before removing sections
+            const collapseState = getCollapseState(container);
+            
+            // Group by author (API returns flat list; support legacy Fiction/Non-Fiction object)
+            const allRecs = [];
+            if (data.recommendations) {
+                if (Array.isArray(data.recommendations)) {
+                    allRecs.push(...data.recommendations);
+                } else {
+                    Object.values(data.recommendations.Fiction || {}).forEach(recs => allRecs.push(...recs));
+                    Object.values(data.recommendations['Non-Fiction'] || {}).forEach(recs => allRecs.push(...recs));
+                }
+            }
+            
+            const byAuthor = {};
+            allRecs.forEach(rec => {
+                const author = rec.author;
+                if (!byAuthor[author]) {
+                    byAuthor[author] = [];
+                }
+                byAuthor[author].push(rec);
+            });
+            
+            // Get sort preference
+            const sortType = container.dataset.sortType || 'count';
+            
+            // Sort authors alphabetically (by last name) or by book count
+            let sortedAuthors;
+            if (sortType === 'alpha') {
+                // Sort alphabetically by last name (or first name if no last name)
+                sortedAuthors = Object.keys(byAuthor).sort((a, b) => {
+                    const getLastName = (name) => {
+                        const parts = name.trim().split(/\s+/);
+                        return parts.length > 1 ? parts[parts.length - 1] : parts[0];
+                    };
+                    const lastNameA = getLastName(a);
+                    const lastNameB = getLastName(b);
+                    const compare = lastNameA.localeCompare(lastNameB);
+                    return compare !== 0 ? compare : a.localeCompare(b);
+                });
+            } else {
+                // Sort by number of books (descending)
+                sortedAuthors = Object.keys(byAuthor).sort((a, b) => byAuthor[b].length - byAuthor[a].length);
+            }
+            
+            // Create author view
+            const authorSection = document.createElement('div');
+            authorSection.className = 'author-view-section';
+            
+            // Add collapse/expand buttons to the view-toggle container
+            if (container.collapseExpandContainer) {
+                // Clear existing buttons
+                container.collapseExpandContainer.innerHTML = '';
+                const collapseAllBtn = document.createElement('button');
+                collapseAllBtn.className = 'collapse-all-btn';
+                collapseAllBtn.textContent = 'Collapse All';
+                collapseAllBtn.onclick = () => toggleAllAuthors(authorSection, true);
+                const expandAllBtn = document.createElement('button');
+                expandAllBtn.className = 'collapse-all-btn';
+                expandAllBtn.textContent = 'Expand All';
+                expandAllBtn.onclick = () => toggleAllAuthors(authorSection, false);
+                container.collapseExpandContainer.appendChild(collapseAllBtn);
+                container.collapseExpandContainer.appendChild(expandAllBtn);
+                
+                // Store button references
+                authorSection.collapseAllBtn = collapseAllBtn;
+                authorSection.expandAllBtn = expandAllBtn;
+            }
+            
+            sortedAuthors.forEach(author => {
+                const authorContainer = document.createElement('div');
+                authorContainer.className = 'author-container';
+                
+                const authorHeader = document.createElement('div');
+                authorHeader.className = 'author-header';
+                // Default to collapsed for ebook recommendations
+                const defaultCollapsed = formatType === 'ebook';
+                const toggleSymbol = defaultCollapsed ? '▶' : '▼';
+                authorHeader.innerHTML = `
+                    <span>${author} <span class="author-book-count">(${byAuthor[author].length} book${byAuthor[author].length !== 1 ? 's' : ''})</span></span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button class="hide-author-btn" onclick="event.stopPropagation(); handleHideAuthor('${author.replace(/'/g, "\\'")}', '${formatType}')" title="Hide this author">✕</button>
+                        <span class="author-toggle">${toggleSymbol}</span>
+                    </div>
+                `;
+                
+                const authorContent = document.createElement('div');
+                authorContent.className = defaultCollapsed ? 'author-content collapsed' : 'author-content expanded';
+                
+                authorHeader.onclick = () => {
+                    const isCollapsed = authorContent.classList.contains('collapsed');
+                    if (isCollapsed) {
+                        authorContent.classList.remove('collapsed');
+                        authorContent.classList.add('expanded');
+                        authorHeader.querySelector('.author-toggle').textContent = '▼';
+                    } else {
+                        authorContent.classList.remove('expanded');
+                        authorContent.classList.add('collapsed');
+                        authorHeader.querySelector('.author-toggle').textContent = '▶';
+                    }
+                    // Update stored state when manually toggled
+                    const recommendationsContainer = authorContainer.closest('.recommendations-container');
+                    if (recommendationsContainer) {
+                        getCollapseState(recommendationsContainer);
+                    }
+                };
+                
+                authorContainer.appendChild(authorHeader);
+                
+                // Group books by series and standalone
+                const seriesGroups = {};
+                const standaloneBooks = [];
+                
+                byAuthor[author].forEach(rec => {
+                    if (rec.series_name) {
+                        const seriesKey = `${rec.series_name}`;
+                        if (!seriesGroups[seriesKey]) {
+                            seriesGroups[seriesKey] = [];
+                        }
+                        seriesGroups[seriesKey].push(rec);
+                    } else {
+                        standaloneBooks.push(rec);
+                    }
+                });
+                
+                // Sort series books by position within each series
+                Object.keys(seriesGroups).forEach(seriesKey => {
+                    seriesGroups[seriesKey].sort((a, b) => {
+                        const posA = a.series_position || 999;
+                        const posB = b.series_position || 999;
+                        return posA - posB;
+                    });
+                });
+                
+                // Sort series groups by first book's position (to put series at top)
+                const sortedSeriesKeys = Object.keys(seriesGroups).sort((a, b) => {
+                    const firstA = seriesGroups[a][0].series_position || 999;
+                    const firstB = seriesGroups[b][0].series_position || 999;
+                    return firstA - firstB;
+                });
+                
+                // Sort standalone books by similarity score
+                standaloneBooks.sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0));
+                
+                // Render series groups first (at the top)
+                sortedSeriesKeys.forEach(seriesKey => {
+                    const seriesBooks = seriesGroups[seriesKey];
+                    if (seriesBooks.length > 1) {
+                        // Only group if there are multiple books in the series
+                        const seriesHeader = document.createElement('div');
+                        seriesHeader.className = 'series-group-header';
+                        seriesHeader.style.marginTop = '15px';
+                        seriesHeader.style.marginBottom = '8px';
+                        seriesHeader.style.paddingBottom = '5px';
+                        seriesHeader.style.borderBottom = '1px solid #D4C5E0';
+                        seriesHeader.style.fontWeight = 'bold';
+                        seriesHeader.style.color = '#6B4C93';
+                        seriesHeader.style.fontSize = '0.95em';
+                        seriesHeader.textContent = `${seriesKey} (${seriesBooks.length} books)`;
+                        authorContent.appendChild(seriesHeader);
+                    }
+                    
+                    seriesBooks.forEach(rec => {
+                        const div = createRecommendationItem(rec, formatType);
+                        authorContent.appendChild(div);
+                    });
+                });
+                
+                // Then render standalone books
+                standaloneBooks.forEach(rec => {
+                    const div = createRecommendationItem(rec, formatType);
+                    authorContent.appendChild(div);
+                });
+                
+                authorContainer.appendChild(authorContent);
+                authorSection.appendChild(authorContainer);
+            });
+            
+            container.appendChild(authorSection);
+            
+            // Add hidden authors section at the bottom (collapsed by default)
+            if (data.hidden_authors && data.hidden_authors.length > 0) {
+                const hiddenSection = document.createElement('div');
+                hiddenSection.className = 'hidden-authors-section';
+                hiddenSection.style.marginTop = '30px';
+                hiddenSection.style.borderTop = '2px solid #D4C5E0';
+                hiddenSection.style.paddingTop = '20px';
+                
+                const hiddenHeader = document.createElement('div');
+                hiddenHeader.className = 'hidden-authors-header';
+                hiddenHeader.style.cursor = 'pointer';
+                hiddenHeader.style.display = 'flex';
+                hiddenHeader.style.justifyContent = 'space-between';
+                hiddenHeader.style.alignItems = 'center';
+                hiddenHeader.style.padding = '10px';
+                hiddenHeader.style.backgroundColor = '#f5f5f5';
+                hiddenHeader.style.borderRadius = '5px';
+                hiddenHeader.style.marginBottom = '10px';
+                hiddenHeader.innerHTML = `
+                    <span style="font-weight: bold; color: #666;">Hidden Authors (${data.hidden_authors.length})</span>
+                    <span class="hidden-toggle">▶</span>
+                `;
+                
+                const hiddenContent = document.createElement('div');
+                hiddenContent.className = 'hidden-authors-content';
+                hiddenContent.style.display = 'none';
+                
+                hiddenHeader.onclick = () => {
+                    const isHidden = hiddenContent.style.display === 'none';
+                    hiddenContent.style.display = isHidden ? 'block' : 'none';
+                    hiddenHeader.querySelector('.hidden-toggle').textContent = isHidden ? '▼' : '▶';
+                };
+                
+                data.hidden_authors.forEach(hiddenAuthor => {
+                    const hiddenAuthorContainer = document.createElement('div');
+                    hiddenAuthorContainer.className = 'hidden-author-container';
+                    hiddenAuthorContainer.style.marginBottom = '15px';
+                    hiddenAuthorContainer.style.padding = '10px';
+                    hiddenAuthorContainer.style.backgroundColor = '#fafafa';
+                    hiddenAuthorContainer.style.borderRadius = '5px';
+                    
+                    const hiddenAuthorHeader = document.createElement('div');
+                    hiddenAuthorHeader.style.display = 'flex';
+                    hiddenAuthorHeader.style.justifyContent = 'space-between';
+                    hiddenAuthorHeader.style.alignItems = 'center';
+                    hiddenAuthorHeader.style.marginBottom = '10px';
+                    hiddenAuthorHeader.innerHTML = `
+                        <span style="font-weight: bold;">${hiddenAuthor.name} <span style="color: #666; font-weight: normal;">(${hiddenAuthor.book_count} book${hiddenAuthor.book_count !== 1 ? 's' : ''})</span></span>
+                        <button class="unhide-author-btn" onclick="handleUnhideAuthor('${hiddenAuthor.name.replace(/'/g, "\\'")}', '${formatType}')" title="Unhide this author">Show</button>
+                    `;
+                    
+                    hiddenAuthorContainer.appendChild(hiddenAuthorHeader);
+                    
+                    // Show books (optional - can be collapsed)
+                    hiddenAuthor.recommendations.slice(0, 5).forEach(rec => {
+                        const div = createRecommendationItem(rec, formatType);
+                        div.style.opacity = '0.7';
+                        hiddenAuthorContainer.appendChild(div);
+                    });
+                    
+                    if (hiddenAuthor.recommendations.length > 5) {
+                        const moreText = document.createElement('div');
+                        moreText.style.textAlign = 'center';
+                        moreText.style.color = '#999';
+                        moreText.style.marginTop = '5px';
+                        moreText.textContent = `... and ${hiddenAuthor.recommendations.length - 5} more`;
+                        hiddenAuthorContainer.appendChild(moreText);
+                    }
+                    
+                    hiddenContent.appendChild(hiddenAuthorContainer);
+                });
+                
+                hiddenSection.appendChild(hiddenHeader);
+                hiddenSection.appendChild(hiddenContent);
+                container.appendChild(hiddenSection);
+            }
+            
+            // Restore collapse state
+            restoreCollapseState(container, collapseState);
+            container.dataset.currentView = 'author';
+        }
+        
+        // Toggle view between category and author
+        function toggleView(formatType, viewType, button) {
+            const content = document.getElementById(`${formatType}Content`);
+            const container = content.querySelector('.recommendations-container');
+            if (!container) return;
+            
+            // Save current collapse state before removing sections
+            getCollapseState(container);
+            
+            const data = JSON.parse(container.dataset.recommendations);
+            
+            // Update button states
+            container.querySelectorAll('.view-toggle-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            button.classList.add('active');
+            
+            // Remove existing sections
+            const existingSections = container.querySelectorAll('.fiction-nonfiction-section, .author-view-section');
+            existingSections.forEach(section => section.remove());
+            
+            if (viewType === 'author') {
+                renderAuthorView(container, data, formatType);
+            } else {
+                renderCategoryView(container, data, formatType);
+            }
+        }
+        
+        // Create a single recommendation item (reusable function)
+        function createRecommendationItem(rec, formatType) {
+            const div = document.createElement('div');
+            div.className = `recommendation-item`;
+            div.dataset.title = rec.title;
+            div.dataset.author = rec.author;
+            div.dataset.format = formatType;
+            
+            const seriesName = rec.series_name || '';
+            const seriesPosition = rec.series_position || null;
+            const bookCount = rec.books_by_author_count || 0;
+            const isThumbsUp = rec.thumbs_up || false;
+            const thumbsUpClass = isThumbsUp ? 'selected' : '';
+            const thumbsUpDisabled = isThumbsUp ? 'disabled' : '';
+            
+            // Format series display: "Series Name #3" or just "Series Name" if no position
+            let seriesDisplay = '';
+            if (seriesName) {
+                if (seriesPosition) {
+                    seriesDisplay = `${seriesName} #${seriesPosition}`;
+                } else {
+                    seriesDisplay = seriesName;
+                }
+            }
+            
+            div.innerHTML = `
+                <div class="recommendation-header">
+                    <div class="recommendation-title">
+                        ${rec.title} by ${rec.author}
+                    </div>
+                </div>
+                ${seriesDisplay ? `<div class="recommendation-series">${seriesDisplay}</div>` : ''}
+                <div class="recommendation-author-count">You've read ${bookCount} book${bookCount !== 1 ? 's' : ''} by ${rec.author}</div>
+                <div class="recommendation-actions">
+                    <button class="action-btn thumbs-up-btn icon-btn ${thumbsUpClass}" data-action="thumbs-up" title="Thumbs Up" ${thumbsUpDisabled}>
+                        👍
+                    </button>
+                    <button class="action-btn thumbs-down-btn icon-btn" data-action="thumbs-down" title="Thumbs Down">
+                        👎
+                    </button>
+                    <button class="action-btn already-read-btn" data-action="already-read" title="Already Read">
+                        already read
+                    </button>
+                    <button class="action-btn non-english-btn" data-action="non-english" title="Not English">
+                        not english
+                    </button>
+                    <button class="action-btn recategorize-btn" data-action="recategorize" title="Recategorize">
+                        recategorize
+                    </button>
+                    <button class="action-btn duplicate-btn" data-action="duplicate" title="Mark as duplicate (remove from view)">
+                        duplicate
+                    </button>
+                </div>
+            `;
+            
+            // Add event listeners
+            const thumbsUpBtn = div.querySelector('[data-action="thumbs-up"]');
+            if (thumbsUpBtn) {
+                thumbsUpBtn.addEventListener('click', () => {
+                    handleThumbsUp(formatType, rec.title, rec.author);
+                });
+            }
+            
+            const thumbsDownBtn = div.querySelector('[data-action="thumbs-down"]');
+            if (thumbsDownBtn) {
+                thumbsDownBtn.addEventListener('click', () => {
+                    handleThumbsDown(formatType, rec.title, rec.author);
+                });
+            }
+            
+            const alreadyReadBtn = div.querySelector('[data-action="already-read"]');
+            if (alreadyReadBtn) {
+                alreadyReadBtn.addEventListener('click', () => {
+                    handleAlreadyRead(formatType, rec.title, rec.author);
+                });
+            }
+            
+            const nonEnglishBtn = div.querySelector('[data-action="non-english"]');
+            if (nonEnglishBtn) {
+                nonEnglishBtn.addEventListener('click', () => {
+                    handleNonEnglish(formatType, rec.title, rec.author);
+                });
+            }
+            
+            const recategorizeBtn = div.querySelector('[data-action="recategorize"]');
+            if (recategorizeBtn) {
+                recategorizeBtn.addEventListener('click', () => {
+                    handleRecategorize(formatType, rec.title, rec.author);
+                });
+            }
+            
+            const duplicateBtn = div.querySelector('[data-action="duplicate"]');
+            if (duplicateBtn) {
+                duplicateBtn.addEventListener('click', () => {
+                    handleDuplicate(formatType, rec.title, rec.author);
+                });
+            }
+            
+            return div;
+        }
+        
+        // Toggle all categories in a section
+        function toggleAllCategories(section, collapse) {
+            const categoryContainers = section.querySelectorAll('.category-container');
+            const recommendationsContainer = section.closest('.recommendations-container');
+            
+            categoryContainers.forEach(container => {
+                const categoryContent = container.querySelector('.category-content');
+                const categoryHeader = container.querySelector('.category-header');
+                const toggle = categoryHeader ? categoryHeader.querySelector('.category-toggle') : null;
+                
+                if (categoryContent && categoryHeader && toggle) {
+                    if (collapse) {
+                        categoryContent.classList.remove('expanded');
+                        categoryContent.classList.add('collapsed');
+                        toggle.textContent = '▶';
+                    } else {
+                        categoryContent.classList.remove('collapsed');
+                        categoryContent.classList.add('expanded');
+                        toggle.textContent = '▼';
+                    }
+                }
+            });
+            
+            // Update stored state after toggling all
+            if (recommendationsContainer) {
+                getCollapseState(recommendationsContainer);
+            }
+        }
+        
+        // Toggle all authors in a section
+        function toggleAllAuthors(section, collapse) {
+            const authorContainers = section.querySelectorAll('.author-container');
+            const recommendationsContainer = section.closest('.recommendations-container');
+            
+            authorContainers.forEach(container => {
+                const authorContent = container.querySelector('.author-content');
+                const authorHeader = container.querySelector('.author-header');
+                const toggle = authorHeader ? authorHeader.querySelector('.author-toggle') : null;
+                
+                if (authorContent && authorHeader && toggle) {
+                    if (collapse) {
+                        authorContent.classList.remove('expanded');
+                        authorContent.classList.add('collapsed');
+                        toggle.textContent = '▶';
+                    } else {
+                        authorContent.classList.remove('collapsed');
+                        authorContent.classList.add('expanded');
+                        toggle.textContent = '▼';
+                    }
+                }
+            });
+            
+            // Update stored state after toggling all
+            if (recommendationsContainer) {
+                getCollapseState(recommendationsContainer);
+            }
+        }
+        
+        // Handle hide author
+        function handleHideAuthor(authorName, formatType) {
+            if (!confirm(`Hide all recommendations from ${authorName}?`)) {
+                return;
+            }
+            
+            fetch(`/api/authors/${encodeURIComponent(authorName)}/hide`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload recommendations
+                    if (formatType === 'audiobook') {
+                        loadAudiobookRecs();
+                    } else {
+                        loadEbookRecs();
+                    }
+                } else {
+                    alert(`Error: ${data.error || 'Failed to hide author'}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error hiding author:', error);
+                alert(`Error: ${error.message || 'Failed to hide author'}`);
+            });
+        }
+        
+        // Handle unhide author
+        function handleUnhideAuthor(authorName, formatType) {
+            fetch(`/api/authors/${encodeURIComponent(authorName)}/unhide`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload recommendations
+                    if (formatType === 'audiobook') {
+                        loadAudiobookRecs();
+                    } else {
+                        loadEbookRecs();
+                    }
+                } else {
+                    alert(`Error: ${data.error || 'Failed to unhide author'}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error unhiding author:', error);
+                alert(`Error: ${error.message || 'Failed to unhide author'}`);
+            });
+        }
+        
+        // Toggle series section (partial/not started)
+        function toggleSeriesSection(header) {
+            const container = header.closest('.series-section-container');
+            const content = container.querySelector('.series-section-content');
+            const toggle = header.querySelector('.series-section-toggle');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+            }
+        }
+        
+        // Sort series section by count or alphabetically
+        function sortSeriesSection(sectionType, sortType, button) {
+            const content = document.getElementById('seriesContent');
+            const container = content.querySelector(`.series-section-container[data-section-type="${sectionType}"]`);
+            if (!container) return;
+            
+            // Update button states
+            container.querySelectorAll('.series-sort-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.style.background = '#fff';
+                btn.style.color = '#333';
+            });
+            button.classList.add('active');
+            button.style.background = '#9B7BB8';
+            button.style.color = '#fff';
+            
+            // Store sort preference
+            localStorage.setItem(`series${sectionType === 'partial' ? 'Partial' : 'NotStarted'}Sort`, sortType);
+            
+            // Get series data
+            const seriesDataKey = sectionType === 'partial' ? 'partialSeries' : 'notStartedSeries';
+            const seriesList = JSON.parse(content.dataset[seriesDataKey]);
+            
+            // Rebuild the section content with new sort
+            const sectionContent = container.querySelector('.series-section-content');
+            sectionContent.dataset.sortType = sortType;
+            sectionContent.innerHTML = buildAuthorGroupedSeriesHTML(seriesList, sectionType, sortType);
+            
+            // Re-attach event listeners for author group toggles
+            sectionContent.querySelectorAll('.series-author-header').forEach(header => {
+                header.onclick = () => toggleSeriesAuthorGroup(header);
+            });
+            
+            // Re-attach event listeners for action buttons (thumbs up/down, already read)
+            const contentContainer = document.getElementById('seriesContent');
+            // Event delegation is already set up on contentContainer, so no need to re-attach
+        }
+        
+        // Toggle series author group within a section
+        function toggleSeriesAuthorGroup(header) {
+            const group = header.closest('.series-author-group');
+            const content = group.querySelector('.series-author-content');
+            const toggle = header.querySelector('.series-author-toggle');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                toggle.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                toggle.textContent = '▶';
+            }
+        }
+        
+        // Handle duplicate
+        function handleDuplicate(formatType, title, author) {
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const buttons = [];
+            
+            // Show tap animation immediately
+            items.forEach(item => {
+                const btn = item.querySelector('[data-action="duplicate"]');
+                if (btn) {
+                    buttons.push(btn);
+                    btn.classList.add('tapped', 'selected');
+                    btn.disabled = true;
+                    // Remove animation class after animation completes
+                    setTimeout(() => {
+                        btn.classList.remove('tapped');
+                    }, 300);
+                }
+            });
+            
+            // Call API to persist duplicate status
+            console.log('Flagging duplicate:', { title, author, formatType });
+            fetch(`/api/recommendations/${formatType}/flag-duplicate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title, author })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => Promise.reject(data));
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Duplicate flag response:', data);
+                if (data.success) {
+                    // Start fade out animation
+                    items.forEach(item => {
+                        item.classList.add('removing');
+                    });
+                    
+                    // Remove from DOM after animation
+                    setTimeout(() => {
+                        items.forEach(item => item.remove());
+                    }, 500);
+                } else {
+                    // Handle database locked or other errors
+                    if (data.retry) {
+                        // Database is locked - show message but keep the visual feedback
+                        items.forEach(item => {
+                            const errorMsg = document.createElement('div');
+                            errorMsg.className = 'error';
+                            errorMsg.style.marginTop = '10px';
+                            errorMsg.style.fontSize = '0.85em';
+                            errorMsg.textContent = 'Database busy - action will be saved when available';
+                            item.appendChild(errorMsg);
+                            // Still fade out after a delay
+                            setTimeout(() => {
+                                item.classList.add('removing');
+                                setTimeout(() => item.remove(), 500);
+                            }, 2000);
+                        });
+                    } else {
+                        // Re-enable buttons if API call failed
+                        buttons.forEach(btn => {
+                            btn.disabled = false;
+                            btn.classList.remove('selected');
+                        });
+                        console.error('Failed to flag duplicate:', data.error, data);
+                        alert(`Failed to save: ${data.error || 'Unknown error'}`);
+                    }
+                }
+            })
+            .catch(error => {
+                // Re-enable buttons if API call failed
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('selected');
+                });
+                console.error('Error flagging duplicate:', error);
+                alert(`Error: ${error.error || error.message || 'Failed to save duplicate flag'}`);
+            });
+        }
+        
+        // Handle recategorize
+        function handleRecategorize(formatType, title, author) {
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const buttons = [];
+            
+            items.forEach(item => {
+                const btn = item.querySelector('[data-action="recategorize"]');
+                if (btn) {
+                    buttons.push(btn);
+                    btn.disabled = true;
+                    btn.textContent = '...';
+                }
+            });
+            
+            fetch(`/api/recommendations/${formatType}/recategorize`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, author})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Start fade out animation
+                    items.forEach(item => {
+                        item.classList.add('removing');
+                    });
+                    // Remove from DOM after animation
+                    setTimeout(() => {
+                        items.forEach(item => item.remove());
+                        // Reload recommendations to show updated categorization
+                        const content = document.getElementById(`${formatType}Content`);
+                        content.dataset.loaded = 'false';
+                        if (formatType === 'audiobook') {
+                            loadAudiobookRecs();
+                        } else {
+                            loadEbookRecs();
+                        }
+                    }, 500);
+                } else {
+                    // Revert on error
+                    buttons.forEach(btn => {
+                        btn.disabled = false;
+                        btn.textContent = 'recategorize';
+                    });
+                    alert(data.error || 'Failed to recategorize book');
+                }
+            })
+            .catch(err => {
+                console.error('Error:', err);
+                // Revert on error
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = 'recategorize';
+                });
+                alert('Error recategorizing book: ' + err.message);
+            });
+        }
+        
+        // Handle thumbs up
+        function handleThumbsUp(formatType, title, author) {
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const buttons = [];
+            items.forEach(item => {
+                const btn = item.querySelector('[data-action="thumbs-up"]');
+                if (btn) {
+                    buttons.push(btn);
+                    btn.classList.add('selected');
+                    btn.disabled = true;
+                }
+            });
+            
+            fetch(`/api/recommendations/${formatType}/feedback`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, author, thumbs_up: true})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Keep the button green and item visible (don't fade out)
+                    // Always mark books-to-read for reload (will reload when user switches to that tab)
+                    const booksToReadContent = document.getElementById('booksToReadContent');
+                    if (booksToReadContent) {
+                        booksToReadContent.dataset.loaded = 'false';
+                    }
+                    // If the tab is currently active, reload immediately
+                    const booksToReadTab = document.getElementById('books-to-read');
+                    if (booksToReadTab && booksToReadTab.classList.contains('active')) {
+                        // Small delay to ensure database commit is complete
+                        setTimeout(() => {
+                            loadBooksToRead();
+                        }, 100);
+                    }
+                } else {
+                    // Revert on error
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                }
+            })
+            .catch(err => {
+                console.error('Error:', err);
+                // Revert on error
+                buttons.forEach(btn => {
+                    btn.classList.remove('selected');
+                    btn.disabled = false;
+                });
+            });
+        }
+        
+        // Handle thumbs down
+        function handleThumbsDown(formatType, title, author) {
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const buttons = [];
+            
+            // Show tap animation immediately
+            items.forEach(item => {
+                const btn = item.querySelector('[data-action="thumbs-down"]');
+                if (btn) {
+                    buttons.push(btn);
+                    btn.classList.add('tapped', 'selected');
+                    btn.disabled = true;
+                    // Remove animation class after animation completes
+                    setTimeout(() => {
+                        btn.classList.remove('tapped');
+                    }, 300);
+                }
+            });
+            
+            fetch(`/api/recommendations/${formatType}/feedback`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, author, thumbs_down: true})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Start fade out animation
+                    items.forEach(item => {
+                        // Check if this is a book-item in a series, and if removing it leaves no unread books
+                        // Do this BEFORE adding 'removing' class so we can count correctly
+                        let shouldFadeSeries = false;
+                        if (item.classList.contains('book-item')) {
+                            const seriesItem = item.closest('.series-item');
+                            if (seriesItem) {
+                                const bookList = seriesItem.querySelector('.book-list');
+                                if (bookList) {
+                                    // Count all book items in the list
+                                    const allBooks = bookList.querySelectorAll('.book-item');
+                                    // If this is the only book (or last book), fade out the entire series
+                                    if (allBooks.length === 1) {
+                                        shouldFadeSeries = true;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        item.classList.add('removing');
+                        
+                        // If this was the last book, fade out the series
+                        if (shouldFadeSeries) {
+                            const seriesItem = item.closest('.series-item');
+                            if (seriesItem) {
+                                setTimeout(() => {
+                                    seriesItem.classList.add('removing');
+                                    setTimeout(() => {
+                                        seriesItem.remove();
+                                    }, 500);
+                                }, 500); // Wait for book item to fade first
+                            }
+                        }
+                    });
+                    // Remove from DOM after animation
+                    setTimeout(() => {
+                        items.forEach(item => item.remove());
+                    }, 500);
+                    // Also reload books to read if that tab is active (to remove if it was there)
+                    const booksToReadTab = document.getElementById('books-to-read');
+                    if (booksToReadTab && booksToReadTab.classList.contains('active')) {
+                        document.getElementById('booksToReadContent').dataset.loaded = 'false';
+                        loadBooksToRead();
+                    }
+                } else {
+                    // Handle database locked or other errors
+                    if (data.retry) {
+                        // Database is locked - show message but keep the visual feedback
+                        items.forEach(item => {
+                            const errorMsg = document.createElement('div');
+                            errorMsg.className = 'error';
+                            errorMsg.style.marginTop = '10px';
+                            errorMsg.style.fontSize = '0.85em';
+                            errorMsg.textContent = 'Database busy - action will be saved when available';
+                            item.appendChild(errorMsg);
+                            // Still fade out after a delay
+                            setTimeout(() => {
+                                item.classList.add('removing');
+                                setTimeout(() => item.remove(), 500);
+                            }, 2000);
+                        });
+                    } else {
+                        // Revert on other errors
+                        buttons.forEach(btn => {
+                            btn.classList.remove('selected');
+                            btn.disabled = false;
+                        });
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Error:', err);
+                // Revert on error
+                buttons.forEach(btn => {
+                    btn.classList.remove('selected');
+                    btn.disabled = false;
+                });
+            });
+        }
+        
+        // Handle already read flag
+        function handleAlreadyRead(formatType, title, author) {
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const buttons = [];
+            
+            // Show tap animation immediately
+            items.forEach(item => {
+                const btn = item.querySelector('[data-action="already-read"]');
+                if (btn) {
+                    buttons.push(btn);
+                    btn.classList.add('tapped', 'selected');
+                    btn.disabled = true;
+                    // Remove animation class after animation completes
+                    setTimeout(() => {
+                        btn.classList.remove('tapped');
+                    }, 300);
+                }
+            });
+            
+            fetch(`/api/recommendations/${formatType}/flag-already-read`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, author})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Start fade out animation
+                    items.forEach(item => {
+                        item.classList.add('removing');
+                        
+                        // Check if this is a book-item in a series, and if marking it as read completes the series
+                        if (item.classList.contains('book-item')) {
+                            const seriesItem = item.closest('.series-item');
+                            if (seriesItem) {
+                                // Get the series meta to check completion status
+                                const seriesMeta = seriesItem.querySelector('.series-meta');
+                                if (seriesMeta) {
+                                    const metaText = seriesMeta.textContent;
+                                    // Parse "Read: X/Y" format
+                                    const match = metaText.match(/Read:\s*(\d+)\/(\d+)/);
+                                    if (match) {
+                                        const booksRead = parseInt(match[1]);
+                                        const totalBooks = parseInt(match[2]);
+                                        // If marking this book as read would complete the series (booksRead + 1 >= totalBooks)
+                                        if (booksRead + 1 >= totalBooks) {
+                                            // Fade out the entire series item after the book item fades
+                                            setTimeout(() => {
+                                                seriesItem.classList.add('removing');
+                                                setTimeout(() => {
+                                                    seriesItem.remove();
+                                                }, 500);
+                                            }, 500); // Wait for book item to fade first
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    // Remove from DOM after animation
+                    setTimeout(() => {
+                        items.forEach(item => item.remove());
+                    }, 500);
+                    // Also reload books to read if that tab is active (to remove if it was there)
+                    const booksToReadTab = document.getElementById('books-to-read');
+                    if (booksToReadTab && booksToReadTab.classList.contains('active')) {
+                        document.getElementById('booksToReadContent').dataset.loaded = 'false';
+                        loadBooksToRead();
+                    }
+                } else {
+                    // Handle database locked or other errors
+                    if (data.retry) {
+                        // Database is locked - show message but keep the visual feedback
+                        items.forEach(item => {
+                            const errorMsg = document.createElement('div');
+                            errorMsg.className = 'error';
+                            errorMsg.style.marginTop = '10px';
+                            errorMsg.style.fontSize = '0.85em';
+                            errorMsg.textContent = 'Database busy - action will be saved when available';
+                            item.appendChild(errorMsg);
+                            // Still fade out after a delay
+                            setTimeout(() => {
+                                item.classList.add('removing');
+                                setTimeout(() => item.remove(), 500);
+                            }, 2000);
+                        });
+                    } else {
+                        // Revert on other errors
+                        buttons.forEach(btn => {
+                            btn.classList.remove('selected');
+                            btn.disabled = false;
+                        });
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Error:', err);
+                // Revert on error
+                buttons.forEach(btn => {
+                    btn.classList.remove('selected');
+                    btn.disabled = false;
+                });
+            });
+        }
+        
+        // Handle non-English flag
+        function handleNonEnglish(formatType, title, author) {
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const buttons = [];
+            
+            // Show tap animation immediately
+            items.forEach(item => {
+                const btn = item.querySelector('[data-action="non-english"]');
+                if (btn) {
+                    buttons.push(btn);
+                    btn.classList.add('tapped', 'selected');
+                    btn.disabled = true;
+                    // Remove animation class after animation completes
+                    setTimeout(() => {
+                        btn.classList.remove('tapped');
+                    }, 300);
+                }
+            });
+            
+            fetch(`/api/recommendations/${formatType}/flag-non-english`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, author})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Start fade out animation
+                    items.forEach(item => {
+                        item.classList.add('removing');
+                    });
+                    // Remove from DOM after animation
+                    setTimeout(() => {
+                        items.forEach(item => item.remove());
+                    }, 500);
+                } else {
+                    // Handle database locked or other errors
+                    if (data.retry) {
+                        // Database is locked - show message but keep the visual feedback
+                        items.forEach(item => {
+                            const errorMsg = document.createElement('div');
+                            errorMsg.className = 'error';
+                            errorMsg.style.marginTop = '10px';
+                            errorMsg.style.fontSize = '0.85em';
+                            errorMsg.textContent = 'Database busy - action will be saved when available';
+                            item.appendChild(errorMsg);
+                            // Still fade out after a delay
+                            setTimeout(() => {
+                                item.classList.add('removing');
+                                setTimeout(() => item.remove(), 500);
+                            }, 2000);
+                        });
+                    } else {
+                        // Revert on other errors
+                        buttons.forEach(btn => {
+                            btn.classList.remove('selected');
+                            btn.disabled = false;
+                        });
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Error:', err);
+                // Revert on error
+                buttons.forEach(btn => {
+                    btn.classList.remove('selected');
+                    btn.disabled = false;
+                });
+            });
+        }
+        
+        // Load books to read
+        function loadBooksToRead() {
+            fetch('/api/books-to-read')
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP error! status: ${r.status}`);
+                    }
+                    const contentType = r.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        return r.text().then(text => {
+                            throw new Error(`Expected JSON but got: ${text.substring(0, 100)}`);
+                        });
+                    }
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    const content = document.getElementById('booksToReadContent');
+                    content.innerHTML = '';
+                    content.dataset.loaded = 'true';
+                    
+                    if (data.total === 0) {
+                        content.innerHTML = '<p>No books saved yet. Use the 👍 button on recommendations to add books here!</p>';
+                        return;
+                    }
+                    
+                    // Use event delegation on the content container for all button clicks
+                    content.addEventListener('click', (e) => {
+                        const btn = e.target.closest('[data-action]');
+                        if (!btn) return;
+                        
+                        const action = btn.dataset.action;
+                        const title = btn.dataset.title;
+                        const author = btn.dataset.author;
+                        
+                        if (!title || !author) return;
+                        
+                        // Determine format type from the book item (default to 'ebook' if not found)
+                        const item = btn.closest('.recommendation-item');
+                        const formatType = item ? (item.dataset.format || 'ebook') : 'ebook';
+                        
+                        if (action === 'thumbs-up') {
+                            handleThumbsUp(formatType, title, author);
+                        } else if (action === 'thumbs-down') {
+                            handleThumbsDown(formatType, title, author);
+                        } else if (action === 'already-read') {
+                            handleAlreadyRead(formatType, title, author);
+                        }
+                    });
+                    
+                    Object.entries(data.books).forEach(([author, books]) => {
+                        const authorSection = document.createElement('div');
+                        authorSection.style.marginBottom = '30px';
+                        
+                        const authorHeader = document.createElement('h3');
+                        authorHeader.style.color = '#6B4C93';
+                        authorHeader.style.borderBottom = '2px solid #9B7BB8';
+                        authorHeader.style.paddingBottom = '8px';
+                        authorHeader.style.marginBottom = '15px';
+                        authorHeader.textContent = author;
+                        authorSection.appendChild(authorHeader);
+                        
+                        books.forEach(book => {
+                            const div = document.createElement('div');
+                            div.className = 'recommendation-item';
+                            div.dataset.title = book.title;
+                            div.dataset.author = book.author;
+                            div.dataset.format = book.format || 'ebook';
+                            div.innerHTML = `
+                                <div class="recommendation-header">
+                                    <div class="recommendation-title">
+                                        ${book.title}
+                                        <span class="score">${book.format}</span>
+                                    </div>
+                                </div>
+                                ${book.category ? `<div class="recommendation-meta">${book.category}</div>` : ''}
+                                ${book.reason ? `<div class="recommendation-meta">${book.reason}</div>` : ''}
+                                <div class="recommendation-actions">
+                                    <button class="action-btn thumbs-up-btn icon-btn selected" data-action="thumbs-up" data-title="${book.title}" data-author="${book.author}" title="Thumbs Up" disabled>
+                                        👍
+                                    </button>
+                                    <button class="action-btn thumbs-down-btn icon-btn" data-action="thumbs-down" data-title="${book.title}" data-author="${book.author}" title="Thumbs Down">
+                                        👎
+                                    </button>
+                                    <button class="action-btn already-read-btn" data-action="already-read" data-title="${book.title}" data-author="${book.author}" title="Already Read">
+                                        already read
+                                    </button>
+                                </div>
+                            `;
+                            authorSection.appendChild(div);
+                        });
+                        
+                        content.appendChild(authorSection);
+                    });
+                })
+                .catch(err => {
+                    document.getElementById('booksToReadContent').innerHTML = 
+                        `<div class="error">Error loading books: ${err.message}</div>`;
+                });
+        }
+        
+        // Load series on page load
+        loadSeries();
+    </script>
+</body>
+</html>
