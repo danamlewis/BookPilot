@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Database (do not commit personal DBs)
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+*.db.backup*
+data/*.backup*
+
+# Data and cache: keep directory structure (data/.gitkeep is committed), ignore contents
+data/cache/
+*.csv
+*.json
+data/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment and secrets (do not commit)
+.env
+.env.local
+.env.*.local
+
+# Internal/Private Documents (not for public sharing)
+INTERNAL_*.md
+*_INTERNAL.md
+PRIVATE_*.md
+*_PRIVATE.md
+docs-dev/
