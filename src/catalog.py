@@ -1,12 +1,146 @@
 """Fetch and store author catalogs"""
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import requests
-from .models import Author, AuthorCatalogBook, Book, SystemMetadata
+from .models import Author, AuthorCatalogBook, Book, Recommendation, Series, SystemMetadata
 from .api.openlibrary import OpenLibraryClient, extract_series_info, extract_isbn, is_english_language
 from .api.googlebooks import GoogleBooksClient
+from .author_classification import organization_author_reason
 from .ingest import normalize_author_name
+
+
+def reading_history_author_keys(db_session: Session) -> set[str]:
+    """Return normalized author keys represented by imported Libby books."""
+    return {
+        author_name.strip().casefold()
+        for (author_name,) in db_session.query(Book.author).filter(
+            Book.author.isnot(None)
+        ).distinct().all()
+        if author_name and author_name.strip()
+    }
+
+
+def author_has_reading_history(author: Author, history_keys: set[str]) -> bool:
+    """Whether an author row maps to at least one imported-history book."""
+    candidate_keys = {
+        value.strip().casefold()
+        for value in (author.normalized_name, author.name)
+        if value and value.strip()
+    }
+    return bool(candidate_keys & history_keys)
+
+
+def reading_history_books_for_author(author: Author, db_session: Session) -> List[Book]:
+    """Return imported books matching either stored form of an author name."""
+    candidate_keys = {
+        value.strip().casefold()
+        for value in (author.normalized_name, author.name)
+        if value and value.strip()
+    }
+    if not candidate_keys:
+        return []
+    # Python casefolding keeps this consistent with batch eligibility and works
+    # for non-ASCII names that SQLite's built-in lower() does not normalize.
+    return [
+        book for book in db_session.query(Book).all()
+        if (book.author or "").strip().casefold() in candidate_keys
+    ]
+
+
+def organization_reason_for_author(author: Author, db_session: Session) -> Optional[str]:
+    """Return why this history-backed author credit represents an organization."""
+    history_books = reading_history_books_for_author(author, db_session)
+    return organization_author_reason(
+        author.name or author.normalized_name,
+        (book.publisher for book in history_books),
+    )
+
+
+def purge_historyless_authors(db_session: Session, dry_run: bool = True) -> Dict:
+    """Remove catalog/list data and author rows unsupported by reading history.
+
+    Recommendations are matched both through ``catalog_book_id`` and their
+    stored author text because older rows do not always retain a catalog link.
+    """
+    history_keys = reading_history_author_keys(db_session)
+    historyless_authors = [
+        author for author in db_session.query(Author).all()
+        if not author_has_reading_history(author, history_keys)
+    ]
+    author_ids = {author.id for author in historyless_authors}
+    author_name_keys = {
+        value.strip().casefold()
+        for author in historyless_authors
+        for value in (author.name, author.normalized_name)
+        if value and value.strip()
+    }
+
+    catalog_rows = (
+        db_session.query(AuthorCatalogBook)
+        .filter(AuthorCatalogBook.author_id.in_(author_ids))
+        .all()
+        if author_ids else []
+    )
+    catalog_ids = {row.id for row in catalog_rows}
+    recommendation_rows = [
+        row for row in db_session.query(Recommendation).all()
+        if (
+            (row.author or "").strip().casefold() in author_name_keys
+            or (row.catalog_book_id is not None and row.catalog_book_id in catalog_ids)
+        )
+    ]
+    series_rows = (
+        db_session.query(Series).filter(Series.author_id.in_(author_ids)).all()
+        if author_ids else []
+    )
+
+    author_details = []
+    for author in historyless_authors:
+        own_catalog_ids = {row.id for row in catalog_rows if row.author_id == author.id}
+        own_name_keys = {
+            value.strip().casefold()
+            for value in (author.name, author.normalized_name)
+            if value and value.strip()
+        }
+        author_details.append({
+            'author_id': author.id,
+            'author': author.name,
+            'catalog_rows': len(own_catalog_ids),
+            'recommendation_rows': sum(
+                1 for row in recommendation_rows
+                if (
+                    (row.author or "").strip().casefold() in own_name_keys
+                    or row.catalog_book_id in own_catalog_ids
+                )
+            ),
+            'series_rows': sum(1 for row in series_rows if row.author_id == author.id),
+        })
+    author_details.sort(key=lambda item: item['author'].casefold())
+
+    result = {
+        'authors_removed': len(historyless_authors),
+        'catalog_rows_removed': len(catalog_rows),
+        'recommendations_removed': len(recommendation_rows),
+        'series_rows_removed': len(series_rows),
+        'author_names': sorted(author.name for author in historyless_authors),
+        'author_details': author_details,
+        'dry_run': dry_run,
+    }
+    if dry_run:
+        return result
+
+    for row in recommendation_rows:
+        db_session.delete(row)
+    for row in series_rows:
+        db_session.delete(row)
+    for row in catalog_rows:
+        db_session.delete(row)
+    for author in historyless_authors:
+        db_session.delete(author)
+    db_session.commit()
+    return result
 
 
 def detect_author_group(author_name: str) -> Optional[List[str]]:
@@ -51,6 +185,19 @@ def auto_split_author_group(author: Author, db_session: Session) -> bool:
     individual_authors = detect_author_group(author.name)
     if not individual_authors:
         return False
+
+    history_keys = reading_history_author_keys(db_session)
+    history_backed_authors = [
+        name for name in individual_authors
+        if normalize_author_name(name).strip().casefold() in history_keys
+    ]
+    if len(history_backed_authors) < 2:
+        print(
+            f"  Skipping auto-split for '{author.name}': fewer than two component "
+            "authors have matching imported-history books."
+        )
+        return False
+    individual_authors = history_backed_authors
     
     print(f"  ⚠ Detected author group: '{author.name}'")
     print(f"     Individual authors: {', '.join(individual_authors)}")
@@ -268,12 +415,29 @@ def fetch_author_catalog(author: Author, db_session: Session,
                 # Was checked but has no catalog books - likely failed, so re-check
                 print(f"  Previous check had 0 books, re-checking...")
     
+    # Find author in Open Library. A catalog is useful only when this author is
+    # represented in the imported reading history. Keep this guard here as well
+    # as in the batch scheduler so direct callers cannot accidentally populate
+    # catalogs for catalog-derived or misassigned author records.
+    your_books = reading_history_books_for_author(author, db_session)
+    if not your_books:
+        return {
+            'skipped': True,
+            'reason': 'No matching books in imported reading history',
+        }
+
+    organization_reason = organization_author_reason(
+        author.name or author.normalized_name,
+        (book.publisher for book in your_books),
+    )
+    if organization_reason:
+        return {
+            'skipped': True,
+            'reason': f'Organization-like author credit: {organization_reason}',
+        }
+
     if ol_client is None:
         ol_client = OpenLibraryClient()
-    
-    # Find author in Open Library
-    # Load your_books once (will be reused for match_catalog_to_history)
-    your_books = db_session.query(Book).filter_by(author=author.normalized_name).all()
     
     if not author.open_library_id:
         try:
@@ -296,6 +460,7 @@ def fetch_author_catalog(author: Author, db_session: Session,
     
     books_added = 0
     books_updated = 0
+    added_books = []
     new_or_updated_books = []  # Track for match_catalog_to_history and optional cleanup
     
     # OPTION 1: Get existing catalog books and build lookup maps (avoid repeated queries)
@@ -496,8 +661,6 @@ def fetch_author_catalog(author: Author, db_session: Session,
                 
                 # Fall back to DB query if global lookups not available (backward compatibility)
                 if not cross_author_duplicate and (not global_title_lookup or not global_isbn_lookup):
-                    from sqlalchemy import func
-                    
                     # Check by exact title match across all authors
                     cross_author_duplicate = db_session.query(AuthorCatalogBook).filter(
                         func.lower(AuthorCatalogBook.title) == title_lower
@@ -540,6 +703,10 @@ def fetch_author_catalog(author: Author, db_session: Session,
                 )
                 db_session.add(catalog_book)
                 books_added += 1
+                added_books.append({
+                    'title': title,
+                    'author': author.name,
+                })
                 new_or_updated_books.append(catalog_book)
         
         # Print optimization stats
@@ -568,6 +735,7 @@ def fetch_author_catalog(author: Author, db_session: Session,
     return {
         'books_added': books_added,
         'books_updated': books_updated,
+        'added_books': added_books,
         'total_catalog_books': db_session.query(AuthorCatalogBook).filter_by(
             author_id=author.id
         ).count()
@@ -649,7 +817,8 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                               max_consecutive_errors: int = 5,
                               only_recent: bool = False,
                               recent_years: int = 3,
-                              auto_cleanup: bool = False) -> Dict:
+                              auto_cleanup: bool = False,
+                              progress_callback=None) -> Dict:
     """
     Fetch catalogs for all authors in database
     
@@ -660,11 +829,53 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
         only_recent: If True, only fetch books published in the last N years (for existing authors)
         recent_years: Number of years to look back for recent books (default: 3)
         auto_cleanup: If True and only_recent, run dedupe and non-English cleanup on new/updated books (or on all catalog books for processed authors if none)
+        progress_callback: Optional callable accepting ``message``, ``current``,
+            and ``total`` keyword arguments.
     """
-    from sqlalchemy import func
-    
+    def report_progress(message, current=None, total=None):
+        if not progress_callback:
+            return
+        try:
+            progress_callback(message=message, current=current, total=total)
+        except Exception:
+            # Display progress must never interrupt catalog persistence.
+            pass
+
     all_authors = db_session.query(Author).all()
     total_author_count = len(all_authors)
+
+    # Author rows can be created by old catalog repair/splitting workflows and
+    # may have no corresponding Libby loan. Never fetch those records, even for
+    # a forced refresh. Book.author stores the normalized author name produced
+    # during ingest, so compare it case-insensitively with surrounding whitespace
+    # removed.
+    history_author_keys = reading_history_author_keys(db_session)
+    history_authors = [
+        author for author in all_authors
+        if author_has_reading_history(author, history_author_keys)
+    ]
+    historyless_count = total_author_count - len(history_authors)
+    if historyless_count:
+        print(
+            f"Skipping {historyless_count} authors with no matching books in imported "
+            "reading history. Use scripts/prune_historyless_authors.py to review or remove them."
+        )
+
+    organization_authors = [
+        author for author in history_authors
+        if organization_reason_for_author(author, db_session)
+    ]
+    organization_author_ids = {author.id for author in organization_authors}
+    refresh_eligible_authors = [
+        author for author in history_authors
+        if author.id not in organization_author_ids
+    ]
+    if organization_authors:
+        print(
+            f"Skipping {len(organization_authors)} publisher/company-style author "
+            f"credit{'s' if len(organization_authors) != 1 else ''}: "
+            + ", ".join(sorted(author.name for author in organization_authors))
+        )
     
     # Pre-filter: only process authors that need a check (avoids work for recently-checked authors)
     catalog_counts = {}  # Initialize for use in loop
@@ -677,7 +888,7 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
         now = datetime.utcnow()
         authors_to_process = []
         skipped_count = 0
-        for author in all_authors:
+        for author in refresh_eligible_authors:
             days_since = (now - author.last_catalog_check).days if author.last_catalog_check else 999
             catalog_count = catalog_counts.get(author.id, 0)
             if days_since < 7 and catalog_count >= 1:
@@ -688,7 +899,7 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
             print(f"Skipping {skipped_count} authors (checked within 7 days with catalog). Processing {len(authors_to_process)} authors.\n")
         authors = authors_to_process
     else:
-        authors = all_authors
+        authors = refresh_eligible_authors
     
     # Reuse API client across all authors (shared cache, fewer allocations)
     ol_client = OpenLibraryClient()
@@ -711,16 +922,26 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
     
     results = {
         'total_authors': total_author_count,
+        'history_eligible_authors': len(history_authors),
+        'historyless_authors_skipped': historyless_count,
+        'organization_authors_skipped': len(organization_authors),
+        'refresh_eligible_authors': len(refresh_eligible_authors),
         'catalogs_fetched': 0,
         'catalogs_skipped': 0,
         'total_books_added': 0,
         'total_books_updated': 0,
+        'added_books': [],
         'errors': [],
         'stopped_early': False
     }
     
     print(f"Processing {len(authors)} authors...")
     print(f"Will stop after {max_consecutive_errors} consecutive errors.\n")
+    report_progress(
+        f"Preparing to check {len(authors)} author{'s' if len(authors) != 1 else ''}…",
+        current=0,
+        total=len(authors),
+    )
     
     consecutive_errors = 0
     new_or_updated_ids = [] if (only_recent and auto_cleanup) else None
@@ -729,6 +950,11 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
     for i, author in enumerate(authors, 1):
         try:
             print(f"[{i}/{len(authors)}] Fetching catalog for {author.name}...")
+            report_progress(
+                f"Checking {author.name} — {i} of {len(authors)} authors",
+                current=i - 1,
+                total=len(authors),
+            )
             
             # Check if this is an author group and auto-split if needed
             if auto_split_author_group(author, db_session):
@@ -784,6 +1010,7 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                 books_updated = result.get('books_updated', 0)
                 results['total_books_added'] += books_added
                 results['total_books_updated'] += books_updated
+                results['added_books'].extend(result.get('added_books', []))
                 print(f"  ✓ Added {books_added} books, updated {books_updated}")
                 consecutive_errors = 0  # Reset error counter on success
                 
@@ -818,10 +1045,21 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                 print("   Check your internet connection and try again later.")
                 results['stopped_early'] = True
                 break
+        finally:
+            report_progress(
+                f"Processed {i} of {len(authors)} authors",
+                current=i,
+                total=len(authors),
+            )
     
     # When only_recent and auto_cleanup: run dedupe and non-English cleanup.
     # Use new/updated book IDs if any; otherwise run cleanup on all catalog books for the authors we just processed.
     if only_recent and auto_cleanup and processed_author_ids:
+        report_progress(
+            "Cleaning up new catalog entries…",
+            current=len(authors),
+            total=len(authors),
+        )
         cleanup_ids = new_or_updated_ids if new_or_updated_ids else [
             row[0] for row in db_session.query(AuthorCatalogBook.id).filter(
                 AuthorCatalogBook.author_id.in_(processed_author_ids)
@@ -838,6 +1076,28 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
             db_session.commit()
             cleanup_non_english_books(db_session, dry_run=False, catalog_book_ids=cleanup_ids)
             db_session.commit()
+            from .collection_cleanup import cleanup_collection_titles
+            collection_result = cleanup_collection_titles(
+                db_session,
+                catalog_book_ids=cleanup_ids,
+            )
+            print(
+                "Multi-book package cleanup: "
+                f"removed {collection_result['catalog_removed']} catalog books and "
+                f"{collection_result['recommendations_removed']} saved recommendations."
+            )
+            from .personal_language_cleanup import run_personalized_language_cleanup
+            language_result = run_personalized_language_cleanup(
+                db_session,
+                catalog_book_ids=cleanup_ids,
+            )
+            print(
+                "Personalized language review: "
+                f"removed {language_result['catalog_rows_deleted']} high-confidence books; "
+                f"reported {language_result['medium_count']} medium-confidence books."
+            )
+            if language_result['report_path']:
+                print(f"Language review report: {language_result['report_path']}")
         else:
             print(f"\nNo catalog books to cleanup for the {len(processed_author_ids)} authors processed.")
     
@@ -854,6 +1114,11 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
         db_session.add(metadata)
     
     db_session.commit()
+    report_progress(
+        "Catalog check complete.",
+        current=len(authors),
+        total=len(authors),
+    )
     
     return results
 
@@ -965,12 +1230,12 @@ def cleanup_non_english_books(db_session: Session, dry_run: bool = False, limit:
             )
             # Match parentheses: (French Edition), (French), etc.
             paren_pattern = re.compile(
-                rf'\([^)]*(?:{non_english_languages})\s*(?:edition|version|translation)?[^)]*\)',
+                rf'\(\s*(?:{non_english_languages})\s*(?:edition|version|translation)?\s*\)',
                 re.IGNORECASE
             )
             # Match square brackets: [French Edition], [French], etc.
             bracket_pattern = re.compile(
-                rf'\[[^\]]*(?:{non_english_languages})\s*(?:edition|version|translation)?[^\]]*\]',
+                rf'\[\s*(?:{non_english_languages})\s*(?:edition|version|translation)?\s*\]',
                 re.IGNORECASE
             )
             # Match "Language Edition" without parentheses/brackets (e.g., "Spanish Edition")
@@ -1016,7 +1281,8 @@ def cleanup_non_english_books(db_session: Session, dry_run: bool = False, limit:
                         r'[àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿąćčđęěğłńňřśşšťůźżžÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞŸĄĆČĐĘĚĞŁŃŇŘŚŞŠŤŮŹŻŽ]'
                     )
                     # Spanish punctuation (definite indicator)
-                    spanish_punct = re.compile(r'[¿¡]')
+                    # Ignore OCR date/range separators such as "1159¿81".
+                    spanish_punct = re.compile(r'(?<!\d)[¿¡](?!\d)')
                     # German ß (definite indicator)
                     german_eszett = re.compile(r'[ß]')
                     
@@ -1312,6 +1578,18 @@ def fix_author_mismatches(db_session: Session, max_groups: int = None, only_cata
                     ol_author_name = ol_author_data.get('name', author.name)
             except:
                 pass
+
+            # A co-author or anthology contributor is not sufficient reason to
+            # create a new catalog author. Only imported reading history may
+            # introduce an author into the catalog-refresh population.
+            history_keys = reading_history_author_keys(db_session)
+            candidate_key = normalize_author_name(ol_author_name).strip().casefold()
+            if candidate_key not in history_keys:
+                print(
+                    f"    Keeping {len(catalog_book_ids)} work(s) with {author.name}; "
+                    f"{ol_author_name} has no matching imported-history book."
+                )
+                continue
             
             # Check if author with this OL ID already exists
             existing_author = db_session.query(Author).filter_by(open_library_id=ol_author_key).first()
@@ -1328,7 +1606,7 @@ def fix_author_mismatches(db_session: Session, max_groups: int = None, only_cata
                     try:
                         new_author = Author(
                             name=ol_author_name,
-                            normalized_name=author.normalized_name,  # Same normalized name
+                            normalized_name=normalize_author_name(ol_author_name),
                             open_library_id=ol_author_key
                         )
                         db_session.add(new_author)
