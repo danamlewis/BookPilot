@@ -1,21 +1,128 @@
 """BookPilot Web Interface - MVP"""
+import csv
 from flask import Flask, render_template, jsonify, request
 from pathlib import Path
 import sys
+import tempfile
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models import init_db, get_session, SystemMetadata, Book, Author, Recommendation, migrate_database
+from src.ingest import ingest_csv
+from src.catalog import fetch_all_author_catalogs
 from src.series import analyze_all_series
 from src.recommend import recommend_audiobooks, recommend_new_books
 from datetime import datetime
+from werkzeug.utils import secure_filename
+from web.jobs import JobAlreadyRunning, JobManager
 
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'bookpilot-dev'  # Flask expects this; this app does not use Flask sessions or login
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
 DB_PATH = Path(__file__).parent.parent / 'data' / 'bookpilot.db'
+JOB_MANAGER = JobManager()
+
+
+def _close_database(session, engine):
+    if session is not None:
+        session.close()
+    if engine is not None:
+        engine.dispose()
+
+
+def _validate_libby_csv(csv_path):
+    """Reject empty or unrelated uploads before starting an import job."""
+    try:
+        with open(csv_path, 'r', encoding='utf-8-sig', newline='') as csv_file:
+            reader = csv.DictReader(csv_file)
+            fields = {field.strip() for field in (reader.fieldnames or []) if field}
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise ValueError("The selected file could not be read as a CSV.") from exc
+
+    missing = {'title', 'author'} - fields
+    if missing:
+        raise ValueError("This does not look like a Libby history CSV (title and author columns are required).")
+
+
+def _run_import_job(csv_path, original_name, progress):
+    engine = None
+    session = None
+    try:
+        progress(message=f"Importing {original_name}…", current=0, total=1)
+        engine = init_db(str(DB_PATH))
+        session = get_session(engine)
+        result = ingest_csv(
+            csv_path,
+            session,
+            update_existing=False,
+            progress_callback=progress,
+        )
+        result.update({
+            'kind': 'import',
+            'filename': original_name,
+            'message': (
+                f"Import complete — {result['books_added']} book"
+                f"{'s' if result['books_added'] != 1 else ''} and "
+                f"{result['authors_added']} author"
+                f"{'s' if result['authors_added'] != 1 else ''} added."
+            ),
+        })
+        return result
+    finally:
+        _close_database(session, engine)
+        Path(csv_path).unlink(missing_ok=True)
+
+
+def _run_catalog_job(*, force_refresh, only_recent, recent_years, progress):
+    engine = None
+    session = None
+    try:
+        engine = init_db(str(DB_PATH))
+        session = get_session(engine)
+        result = fetch_all_author_catalogs(
+            session,
+            force_refresh=force_refresh,
+            only_recent=only_recent,
+            recent_years=recent_years,
+            # Cleanup and author merging remain review-first command-line tools.
+            auto_cleanup=False,
+            progress_callback=progress,
+        )
+        stopped_early = bool(result.get('stopped_early'))
+        result.update({
+            'kind': 'catalog',
+            'warning': stopped_early,
+            'message': (
+                "Catalog update stopped early. Completed progress was saved."
+                if stopped_early else
+                f"Catalog update complete — {result['total_books_added']} book"
+                f"{'s' if result['total_books_added'] != 1 else ''} added across "
+                f"{result['catalogs_fetched']} author"
+                f"{'s' if result['catalogs_fetched'] != 1 else ''}."
+            ),
+        })
+        return result
+    finally:
+        _close_database(session, engine)
+
+
+def _job_response(job, status_code=202):
+    return jsonify({'job': job}), status_code
+
+
+def _job_conflict_response(exc):
+    return jsonify({
+        'error': 'A library update is already running.',
+        'job': exc.job,
+    }), 409
+
+
+@app.errorhandler(413)
+def upload_too_large(_error):
+    return jsonify({'error': 'The selected CSV is larger than the 50 MB upload limit.'}), 413
 
 
 def format_date_delta(date_str):
@@ -60,29 +167,30 @@ def get_status():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     engine = init_db(str(DB_PATH))
     session = get_session(engine)
-    
-    total_books = session.query(Book).count()
-    total_authors = session.query(Author).count()
-    audiobooks = session.query(Book).filter_by(format='audiobook').count()
-    ebooks = session.query(Book).filter_by(format='ebook').count()
-    
-    # Get total series count
-    from src.series import analyze_all_series
-    series_result = analyze_all_series(session, format_filter=None)
-    total_series = series_result.get('total_series', 0)
-    
-    libby_import = session.query(SystemMetadata).filter_by(key='last_libby_import').first()
-    catalog_check = session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
-    
-    return {
-        'total_books': total_books,
-        'total_authors': total_authors,
-        'audiobooks': audiobooks,
-        'ebooks': ebooks,
-        'total_series': total_series,
-        'last_libby_import': format_date_delta(libby_import.value if libby_import else None),
-        'last_catalog_check': format_date_delta(catalog_check.value if catalog_check else None)
-    }
+    try:
+        total_books = session.query(Book).count()
+        total_authors = session.query(Author).count()
+        audiobooks = session.query(Book).filter_by(format='audiobook').count()
+        ebooks = session.query(Book).filter_by(format='ebook').count()
+
+        # Get total series count
+        series_result = analyze_all_series(session, format_filter=None)
+        total_series = series_result.get('total_series', 0)
+
+        libby_import = session.query(SystemMetadata).filter_by(key='last_libby_import').first()
+        catalog_check = session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
+
+        return {
+            'total_books': total_books,
+            'total_authors': total_authors,
+            'audiobooks': audiobooks,
+            'ebooks': ebooks,
+            'total_series': total_series,
+            'last_libby_import': format_date_delta(libby_import.value if libby_import else None),
+            'last_catalog_check': format_date_delta(catalog_check.value if catalog_check else None)
+        }
+    finally:
+        _close_database(session, engine)
 
 
 @app.route('/')
@@ -250,6 +358,100 @@ def api_status():
     return jsonify(get_status())
 
 
+@app.route('/api/jobs/status')
+def api_job_status():
+    """Return the current or most recently completed library-update job."""
+    job = JOB_MANAGER.snapshot()
+    return jsonify({
+        'job': job,
+        'active': bool(job and job['state'] in {'queued', 'running'}),
+    })
+
+
+@app.route('/api/jobs/import', methods=['POST'])
+def api_start_import_job():
+    """Upload and import one Libby reading-history CSV."""
+    active_job = JOB_MANAGER.snapshot()
+    if active_job and active_job['state'] in {'queued', 'running'}:
+        return jsonify({
+            'error': 'A library update is already running.',
+            'job': active_job,
+        }), 409
+
+    uploaded_file = request.files.get('file')
+    if not uploaded_file or not uploaded_file.filename:
+        return jsonify({'error': 'Choose a Libby history CSV to import.'}), 400
+
+    original_name = secure_filename(uploaded_file.filename) or 'libby-history.csv'
+    if Path(original_name).suffix.lower() != '.csv':
+        return jsonify({'error': 'Choose a .csv file exported from Libby.'}), 400
+
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix='bookpilot-libby-',
+        suffix='.csv',
+        delete=False,
+    )
+    temp_path = Path(temp_file.name)
+    temp_file.close()
+
+    try:
+        uploaded_file.save(temp_path)
+        _validate_libby_csv(temp_path)
+        job = JOB_MANAGER.start(
+            'import',
+            'Import CSV',
+            lambda progress: _run_import_job(temp_path, original_name, progress),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        temp_path.unlink(missing_ok=True)
+        return _job_conflict_response(exc)
+    except ValueError as exc:
+        temp_path.unlink(missing_ok=True)
+        return jsonify({'error': str(exc)}), 400
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+@app.route('/api/jobs/catalog/recent', methods=['POST'])
+def api_start_recent_catalog_job():
+    """Check the last year of history-backed author catalogs."""
+    try:
+        job = JOB_MANAGER.start(
+            'catalog_recent',
+            'Check for New Books',
+            lambda progress: _run_catalog_job(
+                force_refresh=False,
+                only_recent=True,
+                recent_years=1,
+                progress=progress,
+            ),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        return _job_conflict_response(exc)
+
+
+@app.route('/api/jobs/catalog/full', methods=['POST'])
+def api_start_full_catalog_job():
+    """Force a complete refresh of history-backed author catalogs."""
+    try:
+        job = JOB_MANAGER.start(
+            'catalog_full',
+            'Refresh All Author Catalogs',
+            lambda progress: _run_catalog_job(
+                force_refresh=True,
+                only_recent=False,
+                recent_years=3,
+                progress=progress,
+            ),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        return _job_conflict_response(exc)
+
+
 @app.route('/api/recommendations/<format_type>/feedback', methods=['POST'])
 def api_recommendation_feedback(format_type):
     """Handle thumbs up/down feedback for recommendations"""
@@ -395,11 +597,13 @@ def api_flag_non_english(format_type):
                 author=author,
                 format=format_type,
                 non_english=True,
+                language_flag_source='manual',
                 feedback_date=datetime.utcnow()
             )
             session.add(rec)
         else:
             rec.non_english = True
+            rec.language_flag_source = 'manual'
             rec.feedback_date = datetime.utcnow()
         
         try:
@@ -426,11 +630,13 @@ def api_flag_non_english(format_type):
                                 author=author,
                                 format=format_type,
                                 non_english=True,
+                                language_flag_source='manual',
                                 feedback_date=datetime.utcnow()
                             )
                             session.add(rec)
                         else:
                             rec.non_english = True
+                            rec.language_flag_source = 'manual'
                             rec.feedback_date = datetime.utcnow()
                         session.commit()
                         return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as non-English (retried)'})
@@ -999,4 +1205,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Warning: Database migration failed: {e}")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Library update endpoints modify local data, so keep the development app
+    # reachable only from this computer.
+    app.run(debug=True, host='127.0.0.1', port=5000)
