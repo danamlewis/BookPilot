@@ -107,6 +107,7 @@ class Recommendation(Base):
     thumbs_up = Column(Boolean, nullable=True)
     thumbs_down = Column(Boolean, nullable=True)
     non_english = Column(Boolean, default=False)  # Flag for non-English books
+    language_flag_source = Column(String, nullable=True)  # manual, personalized_high, review_approved
     already_read = Column(Boolean, default=False)  # Flag for books already read
     duplicate = Column(Boolean, default=False)  # Flag for duplicate recommendations
     feedback_date = Column(DateTime, nullable=True)
@@ -199,6 +200,7 @@ def migrate_database(engine):
             # Add missing columns
             columns_to_add = [
                 ('non_english', 'BOOLEAN DEFAULT 0'),
+                ('language_flag_source', 'VARCHAR'),
                 ('already_read', 'BOOLEAN DEFAULT 0'),
                 ('duplicate', 'BOOLEAN DEFAULT 0')
             ]

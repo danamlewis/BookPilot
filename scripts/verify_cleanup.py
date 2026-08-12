@@ -77,7 +77,7 @@ def check_book_language(title, isbn=None, open_library_key=None):
         r'[àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿąćčđęěğıłńňřśşšťůźżž]',
         re.IGNORECASE
     )
-    spanish_punct = re.compile(r'[¿¡]')
+    spanish_punct = re.compile(r'(?<!\d)[¿¡](?!\d)')
     german_eszett = re.compile(r'ß')
     
     if spanish_punct.search(title):
