@@ -72,11 +72,11 @@ def detect_non_english_title(title: str, isbn: Optional[str] = None,
     )
     
     paren_pattern = re.compile(
-        rf'\([^)]*(?:{non_english_languages})\s*(?:edition|version|translation)?[^)]*\)',
+        rf'\(\s*(?:{non_english_languages})\s*(?:edition|version|translation)?\s*\)',
         re.IGNORECASE
     )
     bracket_pattern = re.compile(
-        rf'\[[^\]]*(?:{non_english_languages})\s*(?:edition|version|translation)?[^\]]*\]',
+        rf'\[\s*(?:{non_english_languages})\s*(?:edition|version|translation)?\s*\]',
         re.IGNORECASE
     )
     standalone_pattern = re.compile(
@@ -109,7 +109,8 @@ def detect_non_english_title(title: str, isbn: Optional[str] = None,
     
     # Method 5: Specific non-English punctuation/characters
     # Check for specific non-English characters that are clear indicators
-    spanish_punct = re.compile(r'[¿¡]')
+    # Ignore OCR date/range separators such as "1159¿81".
+    spanish_punct = re.compile(r'(?<!\d)[¿¡](?!\d)')
     german_eszett = re.compile(r'ß')
     
     if spanish_punct.search(title):
@@ -122,35 +123,7 @@ def detect_non_english_title(title: str, isbn: Optional[str] = None,
     # Note: Removed "high accented character ratio" check as it was causing false positives
     # (flagging regular 'i' characters in English titles)
     
-    # Method 6: Suspicious encoding/typo patterns
-    # Patterns like "Xjust" at start, unusual character sequences
-    # "Xjust Rewards Tegf" - X at start + weird capitalization
-    if re.search(r'^X[a-z]{2,}', title, re.IGNORECASE):
-        # Check if it's a known acronym (XML, XHTML, etc.)
-        known_acronyms = ['xml', 'xhtml', 'xaml', 'xpath', 'xslt', 'xquery']
-        first_word = title.split()[0].lower() if title.split() else ''
-        if first_word not in known_acronyms:
-            reasons.append("Suspicious encoding pattern: X prefix")
-            return True, reasons
-    
-    # Check for weird capitalization patterns (e.g., "Tegf" - short word with mixed case)
-    # But be careful - "iPhone", "eBook" are legitimate
-    words = title.split()
-    for word in words:
-        # Short words (3-5 chars) with mixed case that aren't proper nouns
-        if 3 <= len(word) <= 5 and word[0].isupper() and any(c.islower() for c in word[1:]) and any(c.isupper() for c in word[1:]):
-            # Check if it's a known word, acronym, or common pattern
-            word_lower = word.lower()
-            known_patterns = ['html', 'xml', 'api', 'url', 'pdf', 'csv', 'json', 'iphone', 'ipad', 'ebook', 'epub', 'dj', 'cv', 'abc', 'uk', 'hbr']
-            # Also check if it's a possessive (e.g., "DJ's", "ABC's")
-            if word_lower.rstrip("'s") in known_patterns:
-                continue
-            if word_lower not in known_patterns:
-                # This might be an encoding issue (like "Tegf")
-                reasons.append(f"Suspicious capitalization pattern: '{word}'")
-                return True, reasons
-    
-    # Method 7: Non-English word patterns
+    # Method 6: Non-English word patterns
     # Common non-English articles and prepositions
     non_english_articles = [
         r'\b(?:le|la|les|un|une|des|du|de|el|los|las|una|uno|der|die|das|ein|eine)\s+[A-Z]',  # Articles before capitalized words
@@ -161,7 +134,9 @@ def detect_non_english_title(title: str, isbn: Optional[str] = None,
     if len(title_words) > 2:
         for pattern in non_english_articles:
             matches = len(re.findall(pattern, title, re.IGNORECASE))
-            if matches > 0 and matches / len(title_words) > 0.3:  # More than 30% of words match
+            # One short token (for example "die" in "To Die For") is too
+            # ambiguous to classify a title as non-English.
+            if matches >= 2 and matches / len(title_words) > 0.3:
                 reasons.append("Non-English article/preposition pattern detected")
                 return True, reasons
     

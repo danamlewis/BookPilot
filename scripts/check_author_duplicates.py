@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Check duplicates for a specific author by name.
-Useful for testing duplicate detection on specific authors like Lauraine Snelling.
+Useful for testing duplicate detection on an author supplied at runtime.
 """
 
 import sys

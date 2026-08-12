@@ -13,6 +13,8 @@ from src.ingest import ingest_csv
 from src.catalog import fetch_all_author_catalogs, cleanup_non_english_books, fix_author_mismatches, remove_duplicate_titles, merge_authors, detect_duplicate_authors
 from src.series import analyze_all_series
 from src.recommend import recommend_audiobooks, recommend_new_books, save_recommendations
+from src.personal_language_cleanup import run_personalized_language_cleanup
+from src.collection_cleanup import cleanup_collection_titles
 
 
 def format_date_delta(date_str):
@@ -167,10 +169,33 @@ def cmd_catalog(args):
             dedupe_result = remove_duplicate_titles(session, dry_run=False)
             removed_duplicates = dedupe_result.get('catalog_duplicates_removed', 0)
             print(f"  Removed {removed_duplicates} duplicate catalog books\n")
+
+            # 3. Remove box sets, bundles, and numbered book ranges.
+            print("Step 3: Removing multi-book packages...")
+            collection_result = cleanup_collection_titles(session)
+            print(
+                f"  Removed {collection_result['catalog_removed']} catalog books and "
+                f"{collection_result['recommendations_removed']} saved recommendations\n"
+            )
+
+            # 4. Apply personalized language signals. Only high-confidence
+            # matches are removed; medium-confidence matches remain in the CSV.
+            print("Step 4: Applying personalized language review...")
+            language_result = run_personalized_language_cleanup(session)
+            print(
+                f"  Removed {language_result['catalog_rows_deleted']} high-confidence books; "
+                f"reported {language_result['medium_count']} medium-confidence books\n"
+            )
+            if language_result['report_path']:
+                print(f"  Language review report: {language_result['report_path']}\n")
             
             print(f"✓ Cleanup complete!")
             print(f"  Non-English books removed: {removed_non_english}")
             print(f"  Duplicates removed: {removed_duplicates}")
+            print(f"  Multi-book catalog entries removed: {collection_result['catalog_removed']}")
+            print(f"  Multi-book recommendations removed: {collection_result['recommendations_removed']}")
+            print(f"  Personalized high-confidence books removed: {language_result['catalog_rows_deleted']}")
+            print(f"  Personalized medium-confidence books reported: {language_result['medium_count']}")
         
         # Always check for duplicate authors after catalog fetch
         print(f"\n{'='*60}")

@@ -91,7 +91,7 @@ def parse_date(date_str):
             return None
 
 
-def ingest_csv(csv_path, db_session: Session, update_existing=False):
+def ingest_csv(csv_path, db_session: Session, update_existing=False, progress_callback=None):
     """
     Ingest Libby CSV export into database
     
@@ -99,18 +99,34 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False):
         csv_path: Path to CSV file
         db_session: Database session
         update_existing: If True, update existing records; if False, skip duplicates
+        progress_callback: Optional callable accepting ``message``, ``current``,
+            and ``total`` keyword arguments.
     """
     csv_path = Path(csv_path)
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
     
+    with open(csv_path, 'r', encoding='utf-8-sig') as count_file:
+        total_rows = max(sum(1 for _ in count_file) - 1, 0)
+
+    def report_progress(message, current):
+        if not progress_callback:
+            return
+        try:
+            progress_callback(message=message, current=current, total=total_rows)
+        except Exception:
+            # Display progress must never interrupt import persistence.
+            pass
+
     books_added = 0
     authors_added = set()
-    
-    with open(csv_path, 'r', encoding='utf-8') as f:
+
+    report_progress("Reading Libby history…", 0)
+
+    with open(csv_path, 'r', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
-        
-        for row in reader:
+
+        for row_number, row in enumerate(reader, 1):
             # Extract data
             title = row.get('title', '').strip()
             author_raw = row.get('author', '').strip()
@@ -185,6 +201,12 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False):
                     )
                     db_session.add(author_obj)
                     authors_added.add(author)
+
+            if row_number == total_rows or row_number % 25 == 0:
+                report_progress(
+                    f"Importing Libby history — {row_number} of {total_rows} rows",
+                    row_number,
+                )
     
     # Update system metadata: last Libby import date
     metadata = db_session.query(SystemMetadata).filter_by(key='last_libby_import').first()
@@ -235,6 +257,7 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False):
                 rec.thumbs_up = False
                 removed_from_books_to_read_count += 1
     
+    report_progress("Updating recommendations from your reading history…", total_rows)
     db_session.commit()
     
     return {
