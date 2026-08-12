@@ -50,3 +50,5 @@ INTERNAL_*.md
 PRIVATE_*.md
 *_PRIVATE.md
 docs-dev/
+# Personal/export archives
+*.zip
