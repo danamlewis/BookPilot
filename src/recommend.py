@@ -3,6 +3,8 @@ from typing import List, Dict, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from .models import Book, Author, AuthorCatalogBook, Recommendation
+from .history_crosscheck import get_non_english_title_keys, get_read_title_keys, normalize_work_title
+from .preference_scoring import build_preference_profile, score_catalog_item
 
 
 # Common non-fiction categories
@@ -109,9 +111,10 @@ def recommend_audiobooks(db_session: Session) -> List[Dict]:
     1. Same author audiobooks you haven't listened to
     2. Similar books (by genre/theme)
     """
-    # Get all audiobooks you've listened to
+    # Audiobook candidates must be checked against every format already read.
     your_audiobooks = db_session.query(Book).filter_by(format='audiobook').all()
     your_authors = {b.author for b in your_audiobooks}
+    preference_profile = build_preference_profile(db_session)
     
     recommendations = []
     
@@ -144,6 +147,9 @@ def recommend_audiobooks(db_session: Session) -> List[Dict]:
         
         if not author:
             continue
+
+        read_title_keys = get_read_title_keys(db_session, author)
+        non_english_title_keys = get_non_english_title_keys(db_session, author)
         
         # Count books by this author (from Libby CSV + already_read recommendations)
         books_by_author_count = count_books_by_author(db_session, author_name, author.name)
@@ -160,26 +166,28 @@ def recommend_audiobooks(db_session: Session) -> List[Dict]:
         catalog_books = [b for b in catalog_books if is_english_title(b.title, b.isbn, b.open_library_key)]
         
         for catalog_book in catalog_books:
-            # Check if you've already listened to this (by title match)
-            already_listened = any(
-                b.title.lower() == catalog_book.title.lower() 
-                for b in your_audiobooks
-            )
+            # A print/ebook read counts too: don't recommend another edition of
+            # a work the user has already completed.
+            already_listened = normalize_work_title(catalog_book.title) in read_title_keys
+            flagged_non_english = normalize_work_title(catalog_book.title) in non_english_title_keys
             
-            if not already_listened:
+            if not already_listened and not flagged_non_english:
                 rec_categories = catalog_book.categories.split(', ') if catalog_book.categories else []
+                personal_fit = score_catalog_item(preference_profile, catalog_book, books_by_author_count)
                 recommendations.append({
+                    'catalog_book_id': catalog_book.id,
+                    'open_library_key': catalog_book.open_library_key,
                     'title': catalog_book.title,
                     'author': author.name,
                     'isbn': catalog_book.isbn,
                     'recommendation_type': 'same_author',
-                    'similarity_score': 0.95,  # TODO: not calculated; fixed for same-author. Future: compute from history/engagement.
-                    'reason': f'You\'ve listened to other books by {author.name}',
+                    'reason': personal_fit['score_reason'],
                     'categories': rec_categories,
                     'format': 'audiobook',
                     'books_by_author_count': books_by_author_count,
                     'series_name': catalog_book.series_name if catalog_book.series_name else None,
-                    'series_position': catalog_book.series_position if catalog_book.series_position else None
+                    'series_position': catalog_book.series_position if catalog_book.series_position else None,
+                    **personal_fit,
                 })
     
     # Sort by score
@@ -201,6 +209,7 @@ def recommend_new_books(db_session: Session, category: str = None) -> List[Dict]
     # Get all books you've read
     your_books = db_session.query(Book).all()
     your_authors = {b.author for b in your_books}
+    preference_profile = build_preference_profile(db_session)
     
     recommendations = []
     
@@ -236,6 +245,9 @@ def recommend_new_books(db_session: Session, category: str = None) -> List[Dict]
         
         # Count books by this author (from Libby CSV + already_read recommendations)
         books_by_author_count = count_books_by_author(db_session, author_name, author.name)
+
+        read_title_keys = get_read_title_keys(db_session, author)
+        non_english_title_keys = get_non_english_title_keys(db_session, author)
         
         catalog_books = db_session.query(AuthorCatalogBook).filter_by(
             author_id=author.id,
@@ -247,32 +259,34 @@ def recommend_new_books(db_session: Session, category: str = None) -> List[Dict]
         catalog_books = [b for b in catalog_books if is_english_title(b.title, b.isbn, b.open_library_key)]
         
         for catalog_book in catalog_books:
-            # Check if you've already read this
-            already_read = any(
-                b.title.lower() == catalog_book.title.lower() 
-                for b in your_books
-            )
+            # A manually flagged or imported read in either format counts.
+            already_read = normalize_work_title(catalog_book.title) in read_title_keys
+            flagged_non_english = normalize_work_title(catalog_book.title) in non_english_title_keys
             
-            if not already_read:
+            if not already_read and not flagged_non_english:
                 rec_categories = catalog_book.categories.split(', ') if catalog_book.categories else []
                 
                 # Filter by category if specified
                 if category and category.lower() not in [c.lower() for c in rec_categories]:
                     continue
+
+                personal_fit = score_catalog_item(preference_profile, catalog_book, books_by_author_count)
                 
                 recommendations.append({
+                    'catalog_book_id': catalog_book.id,
+                    'open_library_key': catalog_book.open_library_key,
                     'title': catalog_book.title,
                     'author': author.name,
                     'isbn': catalog_book.isbn,
                     'recommendation_type': 'same_author',
-                    'similarity_score': 0.90,  # TODO: not calculated; fixed for same-author. Future: compute from history/engagement.
-                    'reason': f'You\'ve read other books by {author.name}',
+                    'reason': personal_fit['score_reason'],
                     'categories': rec_categories,
                     'format': 'ebook',
                     'description': catalog_book.description[:200] + '...' if catalog_book.description and len(catalog_book.description) > 200 else catalog_book.description,
                     'books_by_author_count': books_by_author_count,
                     'series_name': catalog_book.series_name if catalog_book.series_name else None,
-                    'series_position': catalog_book.series_position if catalog_book.series_position else None
+                    'series_position': catalog_book.series_position if catalog_book.series_position else None,
+                    **personal_fit,
                 })
     
     # 2. Genre-based recommendations (simpler version - can enhance later)
