@@ -219,7 +219,7 @@ class WebJobApiTests(unittest.TestCase):
         self.assertFalse(calls[0]["force_refresh"])
         self.assertTrue(calls[0]["only_recent"])
         self.assertEqual(calls[0]["recent_years"], 1)
-        self.assertFalse(calls[0]["auto_cleanup"])
+        self.assertTrue(calls[0]["auto_cleanup"])
 
     def test_full_catalog_job_forces_complete_refresh(self):
         calls = []
@@ -245,7 +245,7 @@ class WebJobApiTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertTrue(calls[0]["force_refresh"])
         self.assertFalse(calls[0]["only_recent"])
-        self.assertFalse(calls[0]["auto_cleanup"])
+        self.assertTrue(calls[0]["auto_cleanup"])
 
 
 if __name__ == "__main__":

@@ -254,8 +254,9 @@ def _run_catalog_job(*, force_refresh, only_recent, recent_years, progress):
             force_refresh=force_refresh,
             only_recent=only_recent,
             recent_years=recent_years,
-            # Cleanup and author merging remain review-first command-line tools.
-            auto_cleanup=False,
+            # Deterministic catalog cleanup is safe for unattended local jobs;
+            # fuzzy candidates and author merging remain review-first tools.
+            auto_cleanup=True,
             progress_callback=progress,
         )
         stopped_early = bool(result.get('stopped_early'))

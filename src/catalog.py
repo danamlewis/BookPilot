@@ -883,7 +883,8 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
         max_consecutive_errors: Stop if this many consecutive errors occur
         only_recent: If True, only fetch books published in the last N years (for existing authors)
         recent_years: Number of years to look back for recent books (default: 3)
-        auto_cleanup: If True and only_recent, run dedupe and non-English cleanup on new/updated books (or on all catalog books for processed authors if none)
+        auto_cleanup: If True, run safe dedupe and other catalog cleanup on
+            new/updated books (or all catalog books for processed authors if none)
         progress_callback: Optional callable accepting ``message``, ``current``,
             and ``total`` keyword arguments.
     """
@@ -1022,8 +1023,8 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
     
     consecutive_errors = 0
     interrupted = False
-    new_or_updated_ids = [] if (only_recent and auto_cleanup) else None
-    processed_author_ids = [] if (only_recent and auto_cleanup) else None
+    new_or_updated_ids = [] if auto_cleanup else None
+    processed_author_ids = [] if auto_cleanup else None
     
     for i, author in enumerate(authors, 1):
         try:
@@ -1136,9 +1137,9 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                 total=len(authors),
             )
     
-    # When only_recent and auto_cleanup: run dedupe and non-English cleanup.
-    # Use new/updated book IDs if any; otherwise run cleanup on all catalog books for the authors we just processed.
-    if only_recent and auto_cleanup and processed_author_ids:
+    # Use new/updated IDs when possible, but the dedupe stage compares those
+    # rows with the full catalog of every affected author.
+    if auto_cleanup and processed_author_ids:
         report_progress(
             "Cleaning up new catalog entries…",
             current=len(authors),
@@ -2066,23 +2067,15 @@ def verify_author_fix(db_session: Session, author_name: str = None) -> Dict:
 def remove_duplicate_titles(db_session: Session, dry_run: bool = True, author_limit: int = None, author_offset: int = 0,
                            catalog_book_ids: Optional[List[int]] = None) -> Dict:
     """
-    Remove duplicate titles within the same author.
-    
-    For AuthorCatalogBook: Keep the one with most complete data (has ISBN, description, etc.)
-    For Book: Keep the first one found (they should be identical from Libby import)
-    
-    Args:
-        db_session: Database session
-        dry_run: If True, only report duplicates without removing them
-        author_limit: Maximum number of authors to process (None for all)
-        author_offset: Number of authors to skip before starting (for batch processing)
-        catalog_book_ids: If provided, only consider these catalog book IDs (e.g. recent books only)
-    
-    Returns:
-        Dict with stats about duplicates found/removed
+    Merge deterministic catalog duplicates and exact imported-history duplicates.
+
+    When ``catalog_book_ids`` is provided, those rows select the affected
+    authors and components, but matching still uses each author's full catalog.
+    This allows a newly fetched edition to match a pre-existing catalog row.
     """
     from collections import defaultdict
-    from sqlalchemy import func, distinct
+    from sqlalchemy import distinct
+    from .deduplication.catalog_cleanup import cleanup_within_author_catalog
     
     print("Checking for duplicate titles...")
     
@@ -2110,66 +2103,31 @@ def remove_duplicate_titles(db_session: Session, dry_run: bool = True, author_li
         range_str = f"authors {author_offset + 1}-{author_offset + len(authors_to_process)}" if author_limit else f"authors starting from {author_offset + 1}"
         print(f"  Processing {len(authors_to_process)} {range_str} of {total_authors} total authors...")
     
-    # Check AuthorCatalogBook duplicates
     print("\n  Checking AuthorCatalogBook table...")
-    catalog_duplicates = defaultdict(list)
-    
-    # Get catalog books (filtered by author if chunking, or by catalog_book_ids)
     query = db_session.query(AuthorCatalogBook)
-    if catalog_book_ids:
-        query = query.filter(AuthorCatalogBook.id.in_(catalog_book_ids))
-    elif authors_to_process:
+    if authors_to_process:
         query = query.filter(AuthorCatalogBook.author_id.in_(authors_to_process))
     all_catalog_books = query.all()
-    
-    # Normalize titles for duplicate detection (remove split edition markers, etc.)
-    def normalize_title_for_dedup(title):
-        """Normalize title for duplicate detection, removing split edition markers"""
-        if not title:
-            return ''
-        import re
-        # Remove split edition markers like [1/2], [1/4], [2/2], etc.
-        title = re.sub(r'\s*\[\d+/\d+\]\s*', ' ', title)
-        # Remove common edition markers that don't affect content
-        title = re.sub(r'\s*\([^)]*(?:edition|version|translation)[^)]*\)', '', title, flags=re.IGNORECASE)
-        title = re.sub(r'\s*\[[^\]]*(?:edition|version|translation)[^\]]*\]', '', title, flags=re.IGNORECASE)
-        # Normalize whitespace and case
-        return ' '.join(title.lower().split()).strip()
-    
-    for book in all_catalog_books:
-        title_key = normalize_title_for_dedup(book.title)
-        if title_key:
-            catalog_duplicates[(book.author_id, title_key)].append(book)
-    
-    catalog_dups_found = {k: v for k, v in catalog_duplicates.items() if len(v) > 1}
-    catalog_books_to_remove = []
-    
-    for (author_id, title_lower), books in catalog_dups_found.items():
-        # Score each book by completeness (more complete = keep)
-        def score_book(book):
-            score = 0
-            if book.isbn:
-                score += 10
-            if book.description:
-                score += 5
-            if book.open_library_key:
-                score += 3
-            if book.google_books_id:
-                score += 2
-            if book.publication_date:
-                score += 1
-            return score
-        
-        # Sort by score (highest first), then by ID (keep oldest)
-        books_sorted = sorted(books, key=lambda b: (-score_book(b), b.id))
-        keep_book = books_sorted[0]
-        remove_books = books_sorted[1:]
-        
-        catalog_books_to_remove.extend(remove_books)
-        if not dry_run:
-            print(f"    Author ID {author_id}, '{books[0].title}': Keeping ID {keep_book.id}, removing {len(remove_books)} duplicate(s)")
-        else:
-            print(f"    Author ID {author_id}, '{books[0].title}': Would keep ID {keep_book.id}, would remove {len(remove_books)} duplicate(s)")
+    catalog_result = cleanup_within_author_catalog(
+        db_session,
+        all_catalog_books,
+        scoped_ids=set(catalog_book_ids) if catalog_book_ids else None,
+        dry_run=dry_run,
+    )
+    print(
+        f"    Found {catalog_result['clusters_found']} deterministic cluster(s); "
+        f"{catalog_result['rows_planned']} row(s) eligible for removal"
+    )
+    if catalog_result["manual_candidates"]:
+        print(
+            f"    Left {catalog_result['manual_candidates']} fuzzy or conflicting "
+            "candidate(s) for manual review"
+        )
+    if catalog_result["protected_candidates"]:
+        print(
+            f"    Protected {catalog_result['protected_candidates']} numbered-work or "
+            "collection relationship(s)"
+        )
     
     # Check Book table duplicates
     print("\n  Checking Book table...")
@@ -2211,20 +2169,18 @@ def remove_duplicate_titles(db_session: Session, dry_run: bool = True, author_li
     
     # Remove duplicates if not dry run
     if not dry_run:
-        print(f"\n  Removing {len(catalog_books_to_remove)} duplicate catalog books...")
-        for book in catalog_books_to_remove:
-            db_session.delete(book)
-        
         print(f"  Removing {len(books_to_remove)} duplicate books...")
         for book in books_to_remove:
             db_session.delete(book)
         
         try:
             db_session.commit()
-            print(f"\n✓ Removed {len(catalog_books_to_remove)} duplicate catalog books and {len(books_to_remove)} duplicate books")
+            print(f"\n✓ Removed {catalog_result['rows_removed']} duplicate catalog books and {len(books_to_remove)} duplicate books")
             return {
-                'catalog_duplicates_found': len(catalog_dups_found),
-                'catalog_duplicates_removed': len(catalog_books_to_remove),
+                'catalog_duplicates_found': catalog_result['clusters_found'],
+                'catalog_duplicates_removed': catalog_result['rows_removed'],
+                'catalog_review_candidates': catalog_result['manual_candidates'],
+                'catalog_protected_candidates': catalog_result['protected_candidates'],
                 'book_duplicates_found': len(book_dups_found),
                 'book_duplicates_removed': len(books_to_remove)
             }
@@ -2232,8 +2188,10 @@ def remove_duplicate_titles(db_session: Session, dry_run: bool = True, author_li
             print(f"\n⚠ Error committing changes: {e}")
             db_session.rollback()
             return {
-                'catalog_duplicates_found': len(catalog_dups_found),
+                'catalog_duplicates_found': catalog_result['clusters_found'],
                 'catalog_duplicates_removed': 0,
+                'catalog_review_candidates': catalog_result['manual_candidates'],
+                'catalog_protected_candidates': catalog_result['protected_candidates'],
                 'book_duplicates_found': len(book_dups_found),
                 'book_duplicates_removed': 0,
                 'error': str(e)
@@ -2241,8 +2199,10 @@ def remove_duplicate_titles(db_session: Session, dry_run: bool = True, author_li
     else:
         print(f"\n  (Dry run - no changes made)")
         return {
-            'catalog_duplicates_found': len(catalog_dups_found),
+            'catalog_duplicates_found': catalog_result['clusters_found'],
             'catalog_duplicates_removed': 0,
+            'catalog_review_candidates': catalog_result['manual_candidates'],
+            'catalog_protected_candidates': catalog_result['protected_candidates'],
             'book_duplicates_found': len(book_dups_found),
             'book_duplicates_removed': 0
         }
@@ -2483,9 +2443,9 @@ def extract_first_last_name(name: str) -> tuple:
     Extract first and last name from author name, ignoring middle initials and punctuation.
     
     Examples:
-    - "L. M. (Lucy Maud) Montgomery" -> ("L", "Montgomery")
-    - "Julia R. Kelly" -> ("Julia", "Kelly")
-    - "Julia Kelly" -> ("Julia", "Kelly")
+    - "A. B. (Alex Blair) Writer" -> ("A", "Writer")
+    - "Casey R. Example" -> ("Casey", "Example")
+    - "Casey Example" -> ("Casey", "Example")
     
     Returns:
         (first_name, last_name) tuple, both lowercased

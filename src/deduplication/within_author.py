@@ -291,3 +291,18 @@ def choose_keeper(books: Sequence) -> object:
         )
         return metadata - title_penalty, -len(title), -book.id
     return max(books, key=score)
+
+
+def choose_display_title(books: Sequence) -> str:
+    """Choose a clean display title independently of the metadata keeper."""
+    def score(book):
+        title = book.title or ""
+        penalty = (
+            12 * bool(RETAIL_BOILERPLATE_RE.search(title))
+            + 8 * bool(AUTHOR_DATE_SUFFIX_RE.search(title))
+            + 6 * bool(SAFE_PACKAGING_RE.search(title))
+            + 4 * bool(SPLIT_MARKER_RE.search(title))
+            + 4 * bool(re.search(r"\buntitled\b", title, re.IGNORECASE))
+        )
+        return penalty, len(title), title.casefold(), book.id
+    return min(books, key=score).title

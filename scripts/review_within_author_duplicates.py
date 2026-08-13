@@ -20,16 +20,24 @@ from scripts.review_low_score_non_english import collect_recommendation_rows
 TIER_ORDER = {"auto": 3, "review": 2, "never": 1}
 
 
-def visible_books_by_author(session, author_names):
+def visible_books_by_author(session, author_names=None):
+    """Load the books actually shown by the ebook/audiobook recommenders.
+
+    A catalog row may appear in one or both lists. Keeping those memberships
+    lets the review report omit pairs that never appear together in a list.
+    """
     rows = collect_recommendation_rows(session, threshold=101, author_filter=None, excluded_authors=set())
-    requested = {name.casefold() for name in author_names}
+    requested = {name.casefold() for name in author_names or ()}
     grouped = {}
     for row in rows:
         author = row["author"]
-        if author.name.casefold() not in requested:
+        if requested and author.name.casefold() not in requested:
             continue
-        grouped.setdefault(author.id, {"author": author, "books": {}})
+        grouped.setdefault(author.id, {"author": author, "books": {}, "formats": {}})
         grouped[author.id]["books"][row["book"].id] = row["book"]
+        grouped[author.id]["formats"].setdefault(row["book"].id, set()).add(
+            row["recommendation_format"]
+        )
     return grouped
 
 
@@ -41,7 +49,15 @@ def build_review_rows(session, author_names, include_never=True):
     for data in grouped.values():
         author = data["author"]
         books = list(data["books"].values())
+        format_counts = Counter(
+            format_name
+            for values in data["formats"].values()
+            for format_name in values
+        )
         for first, second in combinations(books, 2):
+            shared_formats = data["formats"][first.id] & data["formats"][second.id]
+            if not shared_formats:
+                continue
             assessment = assess_duplicate_pair(
                 first.title, second.title,
                 isbn_a=first.isbn, isbn_b=second.isbn,
@@ -63,6 +79,9 @@ def build_review_rows(session, author_names, include_never=True):
                 "confidence": assessment.confidence,
                 "author": author.name,
                 "visible_author_book_count": len(books),
+                "visible_ebook_count": format_counts["ebook"],
+                "visible_audiobook_count": format_counts["audiobook"],
+                "recommendation_lists": "; ".join(sorted(shared_formats)),
                 "keep_catalog_book_id": keeper.id,
                 "keep_title": keeper.title,
                 "keep_isbn": keeper.isbn or "",
@@ -134,20 +153,26 @@ def write_report(rows, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=str(Path(__file__).resolve().parents[1] / "data" / "bookpilot.db"))
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group(required=False)
+    source.add_argument(
         "--author",
         action="append",
         help="Exact author name; repeat for multiple authors. If omitted, read one author per line from stdin.",
+    )
+    source.add_argument(
+        "--all-visible",
+        action="store_true",
+        help="Review every author in the currently visible ebook/audiobook recommendation lists.",
     )
     parser.add_argument("--exclude-never", action="store_true", help="Omit explicit do-not-merge examples.")
     parser.add_argument("--output")
     parser.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
-    authors = tuple(args.author or ())
-    if not authors and not sys.stdin.isatty():
+    authors = None if args.all_visible else tuple(args.author or ())
+    if authors == () and not sys.stdin.isatty():
         authors = tuple(line.strip() for line in sys.stdin if line.strip())
-    if not authors:
-        parser.error("provide --author or pipe newline-delimited author names on stdin")
+    if authors == ():
+        parser.error("provide --author, --all-visible, or pipe newline-delimited author names on stdin")
     session = get_session(init_db(args.db))
     try:
         rows, grouped = build_review_rows(session, authors, include_never=not args.exclude_never)
@@ -158,9 +183,10 @@ def main():
     )
     write_report(rows, output)
     counts = Counter(row["tier"] for row in rows)
-    print("Visible authors reviewed:")
-    for data in sorted(grouped.values(), key=lambda data: data["author"].name.casefold()):
-        print(f"  {data['author'].name}: {len(data['books'])} unique visible books")
+    print(f"Visible authors reviewed: {len(grouped)}")
+    if not args.all_visible:
+        for data in sorted(grouped.values(), key=lambda data: data["author"].name.casefold()):
+            print(f"  {data['author'].name}: {len(data['books'])} unique visible books")
     print(f"Candidates: {len(rows)} | auto={counts['auto']} review={counts['review']} never={counts['never']}")
     for row in rows[:args.limit]:
         print(

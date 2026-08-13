@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Apply approved within-author duplicate clusters from a review CSV.
 
-By default, both ``auto`` and ``review`` tiers are treated as approved. The
-``never`` safety controls are deliberately excluded. Pairwise matches are
-collapsed into connected components so a chain such as four editions of one
-title becomes one catalog listing.
+Automatic-tier rows are eligible by default. Review-tier rows require a
+``review_decision`` value such as ``merge`` unless the explicit
+``--include-unreviewed-review`` override is supplied. Protected relationships
+are validated after pairwise matches are collapsed into connected components.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import csv
 import re
 import sqlite3
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 
@@ -29,6 +30,12 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Review CSV to apply.",
     )
+    parser.add_argument(
+        "--include-unreviewed-review",
+        action="store_true",
+        help="Also merge blank review-tier rows. Use only after reviewing the entire report.",
+    )
+    parser.add_argument("--audit", type=Path, help="Output path for the merge audit CSV.")
     parser.add_argument("--execute", action="store_true", help="Commit changes; otherwise only preview them")
     return parser.parse_args()
 
@@ -53,6 +60,53 @@ def connected_components(edges: list[tuple[int, int]]) -> list[list[int]]:
         unseen -= component
         components.append(sorted(component))
     return sorted(components, key=lambda values: (values[0], len(values)))
+
+
+def select_approved_rows(rows: list[dict], include_unreviewed_review: bool = False) -> list[dict]:
+    merge_values = {"approve", "approved", "merge", "yes", "y"}
+    approved = []
+    for row in rows:
+        decision = (row.get("review_decision") or "").strip().casefold()
+        if row.get("tier") == "auto" and decision not in {"keep", "keep separate", "no", "n"}:
+            approved.append(row)
+        elif row.get("tier") == "review" and (
+            decision in merge_values or include_unreviewed_review
+        ):
+            approved.append(row)
+    return approved
+
+
+def protected_component_conflicts(rows: list[dict], components: list[list[int]]) -> list[dict]:
+    component_by_id = {
+        book_id: index
+        for index, component in enumerate(components)
+        for book_id in component
+    }
+    conflicts = []
+    for row in rows:
+        decision = (row.get("review_decision") or "").strip().casefold()
+        protected = row.get("tier") == "never" or decision in {"keep", "keep separate", "no", "n"}
+        if not protected:
+            continue
+        first = int(row["keep_catalog_book_id"])
+        second = int(row["review_catalog_book_id"])
+        if component_by_id.get(first) is not None and component_by_id.get(first) == component_by_id.get(second):
+            conflicts.append(row)
+    return conflicts
+
+
+def backup_database(database: Path) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = database.with_name(f"{database.stem}_before_dedupe_{timestamp}{database.suffix}")
+    source = sqlite3.connect(database)
+    target = sqlite3.connect(backup_path)
+    try:
+        with target:
+            source.backup(target)
+    finally:
+        target.close()
+        source.close()
+    return backup_path
 
 
 def title_penalty(title: str) -> tuple[int, int, str]:
@@ -137,12 +191,22 @@ def main() -> None:
     args = parse_args()
     with args.report.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    approved = [row for row in rows if row["tier"] in {"auto", "review"}]
+    approved = select_approved_rows(rows, args.include_unreviewed_review)
     edges = [
         (int(row["keep_catalog_book_id"]), int(row["review_catalog_book_id"]))
         for row in approved
     ]
     components = connected_components(edges)
+    conflicts = protected_component_conflicts(rows, components)
+    if conflicts:
+        examples = "; ".join(
+            f"{row['keep_title']} <> {row['review_title']}" for row in conflicts[:3]
+        )
+        raise SystemExit(
+            f"Refusing to merge {len(conflicts)} protected relationship(s) bridged by a component: {examples}"
+        )
+
+    backup_path = backup_database(args.database) if args.execute else None
 
     connection = sqlite3.connect(args.database)
     connection.row_factory = sqlite3.Row
@@ -163,12 +227,13 @@ def main() -> None:
     finally:
         connection.close()
 
-    audit_path = args.report.with_name(args.report.stem.replace("review", "merge_audit") + ".csv")
+    audit_path = args.audit or args.report.with_name(args.report.stem + "_merge_audit.csv")
     with audit_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=("keeper_id", "title", "removed_ids", "cluster_size"))
         writer.writeheader()
         writer.writerows(audit)
     print(f"Merged {len(components)} clusters; removed {sum(len(c) - 1 for c in components)} duplicate rows")
+    print(f"Backup: {backup_path}")
     print(f"Audit: {audit_path}")
 
 

@@ -4,7 +4,7 @@ Detect composite volumes (books with slashes or multiple books in title)
 that duplicate standalone books.
 
 Scenarios:
-1. "The Secret" (standalone) vs "The Secret/The Revealing/The Whatever" (composite)
+1. "First Story" (standalone) vs "First Story/Second Story/Third Story" (composite)
 2. "Book 1 / Book 2 / Book 3" (composite)
 3. "Books 1-5" in title
 4. Series position = 1 but title contains multiple books
@@ -29,7 +29,7 @@ def extract_books_from_composite(title: str) -> List[str]:
     Extract individual book titles from a composite title.
     
     Examples:
-    - "The Secret/The Revealing/The Whatever" -> ["The Secret", "The Revealing", "The Whatever"]
+    - "First Story/Second Story/Third Story" -> ["First Story", "Second Story", "Third Story"]
     - "Book 1 / Book 2 / Book 3" -> ["Book 1", "Book 2", "Book 3"]
     - "Books 1-5" -> [] (can't extract specific titles)
     """
