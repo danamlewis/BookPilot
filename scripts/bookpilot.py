@@ -113,19 +113,6 @@ def cmd_catalog(args):
                                        recent_years=args.recent_years,
                                        auto_cleanup=args.auto_cleanup)
     
-    # Update system metadata: last catalog check date
-    metadata = session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
-    if metadata:
-        metadata.value = datetime.utcnow().isoformat()
-        metadata.updated_at = datetime.utcnow()
-    else:
-        metadata = SystemMetadata(
-            key='last_catalog_check',
-            value=datetime.utcnow().isoformat()
-        )
-        session.add(metadata)
-    session.commit()
-    
     if result.get('stopped_early'):
         print(f"\n⚠️  Catalog fetch stopped early due to errors!")
         print(f"  Total authors: {result['total_authors']}")
@@ -151,51 +138,6 @@ def cmd_catalog(args):
             print(f"  Errors: {len(result['errors'])}")
             for error in result['errors'][:5]:
                 print(f"    - {error}")
-        
-        # Auto-cleanup if requested (when not only_recent; with only_recent, cleanup runs inside fetch)
-        if args.auto_cleanup and not args.only_recent:
-            print(f"\n{'='*60}")
-            print("Running automatic cleanup...")
-            print(f"{'='*60}\n")
-            
-            # 1. Remove non-English books
-            print("Step 1: Removing non-English books...")
-            cleanup_result = cleanup_non_english_books(session, dry_run=False)
-            removed_non_english = cleanup_result.get('removed', 0)
-            print(f"  Removed {removed_non_english} non-English books\n")
-            
-            # 2. Remove duplicate titles
-            print("Step 2: Removing duplicate titles...")
-            dedupe_result = remove_duplicate_titles(session, dry_run=False)
-            removed_duplicates = dedupe_result.get('catalog_duplicates_removed', 0)
-            print(f"  Removed {removed_duplicates} duplicate catalog books\n")
-
-            # 3. Remove box sets, bundles, and numbered book ranges.
-            print("Step 3: Removing multi-book packages...")
-            collection_result = cleanup_collection_titles(session)
-            print(
-                f"  Removed {collection_result['catalog_removed']} catalog books and "
-                f"{collection_result['recommendations_removed']} saved recommendations\n"
-            )
-
-            # 4. Apply personalized language signals. Only high-confidence
-            # matches are removed; medium-confidence matches remain in the CSV.
-            print("Step 4: Applying personalized language review...")
-            language_result = run_personalized_language_cleanup(session)
-            print(
-                f"  Removed {language_result['catalog_rows_deleted']} high-confidence books; "
-                f"reported {language_result['medium_count']} medium-confidence books\n"
-            )
-            if language_result['report_path']:
-                print(f"  Language review report: {language_result['report_path']}\n")
-            
-            print(f"✓ Cleanup complete!")
-            print(f"  Non-English books removed: {removed_non_english}")
-            print(f"  Duplicates removed: {removed_duplicates}")
-            print(f"  Multi-book catalog entries removed: {collection_result['catalog_removed']}")
-            print(f"  Multi-book recommendations removed: {collection_result['recommendations_removed']}")
-            print(f"  Personalized high-confidence books removed: {language_result['catalog_rows_deleted']}")
-            print(f"  Personalized medium-confidence books reported: {language_result['medium_count']}")
         
         # Always check for duplicate authors after catalog fetch
         print(f"\n{'='*60}")

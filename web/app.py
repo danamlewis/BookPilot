@@ -1,29 +1,69 @@
 """BookPilot Web Interface - MVP"""
 import csv
-from flask import Flask, render_template, jsonify, request
+import os
+from flask import Flask, render_template, jsonify, request, g
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
+from sqlalchemy import create_engine, func, literal_column
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import OperationalError
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models import init_db, get_session, SystemMetadata, Book, Author, Recommendation, migrate_database
+from src.local_env import load_local_env
 from src.ingest import ingest_csv
 from src.catalog import fetch_all_author_catalogs
-from src.series import analyze_all_series
+from src.series import (
+    analyze_all_series,
+    ignore_progress_series,
+    restore_progress_series,
+)
+from src.series_review import load_visible_recommendation_candidates
+from src.series_reconciliation import (
+    DEFAULT_BATCH_SIZE,
+    MAX_BATCH_SIZE,
+    MIN_RECOMMENDATIONS,
+    eligible_reconciliation_authors,
+    ignore_series,
+    load_ignored_series,
+    load_reconciliation_result,
+    pass_titles_for_both_formats,
+    record_ignored_series_passes,
+    restore_series,
+    run_series_reconciliation,
+    save_reconciliation_result,
+)
+from src.api.hardcover import HardcoverClient
+from src.series_enrichment import (
+    REQUEST_INTERVAL_SECONDS,
+    record_hardcover_book_action,
+    run_enrichment,
+)
 from src.recommend import recommend_audiobooks, recommend_new_books
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from web.jobs import JobAlreadyRunning, JobManager
 
 
+PROJECT_ROOT = Path(__file__).parent.parent
+load_local_env(PROJECT_ROOT / '.env.local')
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'bookpilot-dev'  # Flask expects this; this app does not use Flask sessions or login
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+app.config['HARDCOVER_API_TOKEN'] = os.environ.get('HARDCOVER_API_TOKEN', '')
 
-DB_PATH = Path(__file__).parent.parent / 'data' / 'bookpilot.db'
+DB_PATH = PROJECT_ROOT / 'data' / 'bookpilot.db'
 JOB_MANAGER = JobManager()
+SERIES_RECONCILIATION_JOB_MANAGER = JobManager()
+SERIES_ENRICHMENT_JOB_MANAGER = JobManager()
+_INITIALIZED_DATABASES = set()
+_DATABASE_INIT_LOCK = threading.Lock()
 
 
 def _close_database(session, engine):
@@ -31,6 +71,181 @@ def _close_database(session, engine):
         session.close()
     if engine is not None:
         engine.dispose()
+
+
+def _database_has_recommendation_identity_index(engine):
+    """Confirm the migration required by atomic recommendation upserts succeeded."""
+    try:
+        with engine.connect() as connection:
+            indexes = connection.exec_driver_sql(
+                "PRAGMA index_list('recommendations')"
+            ).fetchall()
+    except Exception:
+        return False
+    return any(row[1] == 'ux_recommendation_identity' and bool(row[2]) for row in indexes)
+
+
+def _request_database():
+    """Return one database session for the current HTTP request."""
+    if 'db_session' not in g:
+        database_key = str(DB_PATH.resolve())
+        with _DATABASE_INIT_LOCK:
+            if database_key not in _INITIALIZED_DATABASES:
+                g.db_engine = init_db(str(DB_PATH))
+                # migrate_database intentionally logs rather than raising. Do
+                # not cache a silently failed initialization: the next request
+                # must be allowed to retry the migration, particularly because
+                # feedback upserts depend on its expression-based unique index.
+                if _database_has_recommendation_identity_index(g.db_engine):
+                    _INITIALIZED_DATABASES.add(database_key)
+            else:
+                g.db_engine = create_engine(
+                    f'sqlite:///{DB_PATH}',
+                    connect_args={'check_same_thread': False},
+                )
+        g.db_session = get_session(g.db_engine)
+    return g.db_session
+
+
+class _RecommendationDatabaseBusy(Exception):
+    """Raised after a recommendation write exhausts SQLite lock retries."""
+
+
+def _recommendation_upsert_statement(
+    *,
+    title,
+    author,
+    format_type,
+    insert_values,
+    update_values,
+):
+    """Build an upsert matching the recommendation identity expression index."""
+    statement = sqlite_insert(Recommendation).values(
+        title=title,
+        author=author,
+        format=format_type,
+        **insert_values,
+    )
+    return statement.on_conflict_do_update(
+        index_elements=[
+            func.lower(func.trim(Recommendation.title)),
+            func.lower(func.trim(Recommendation.author)),
+            func.coalesce(Recommendation.format, literal_column("''")),
+        ],
+        set_=update_values,
+    )
+
+
+def _upsert_recommendation(
+    session,
+    *,
+    title,
+    author,
+    format_type,
+    insert_values,
+    update_values,
+):
+    """Atomically create or update one case-insensitive recommendation identity.
+
+    The expression list deliberately matches ``ux_recommendation_identity`` in
+    ``migrate_database``.  Using one SQLite upsert removes the select-then-insert
+    race that previously returned a unique-constraint 500 when two identical UI
+    actions arrived together.
+    """
+    now = datetime.utcnow()
+    statement = _recommendation_upsert_statement(
+        title=title,
+        author=author,
+        format_type=format_type,
+        insert_values={'feedback_date': now, **insert_values},
+        update_values={'feedback_date': now, **update_values},
+    )
+
+    # Preserve the existing initial attempt plus three exponential-backoff
+    # retries for transient SQLite writer locks.
+    for attempt in range(4):
+        try:
+            session.execute(statement)
+            session.commit()
+            return attempt > 0
+        except OperationalError as exc:
+            session.rollback()
+            if 'locked' not in str(exc).lower():
+                raise
+            if attempt == 3:
+                raise _RecommendationDatabaseBusy from exc
+            time.sleep(0.1 * (2 ** attempt))
+
+
+def _recommendation_action_response(
+    format_type,
+    *,
+    insert_values,
+    update_values,
+    message,
+):
+    """Validate and persist a recommendation action shared by UI endpoints."""
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('title') or '').strip()
+    author = str(data.get('author') or '').strip()
+    if not title or not author:
+        return jsonify({'success': False, 'error': 'Missing title or author'}), 400
+
+    session = _request_database()
+    try:
+        retried = _upsert_recommendation(
+            session,
+            title=title,
+            author=author,
+            format_type=format_type,
+            insert_values=insert_values,
+            update_values=update_values,
+        )
+    except _RecommendationDatabaseBusy:
+        return jsonify({
+            'success': False,
+            'error': 'Database is currently locked. Please try again in a moment.',
+            'retry': True,
+        }), 503
+    except Exception as exc:
+        session.rollback()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+    reconciliation_status = None
+    if update_values.get('already_read'):
+        reconciliation_status = 'read'
+    elif any(update_values.get(key) for key in ('thumbs_down', 'duplicate', 'non_english')):
+        reconciliation_status = 'other'
+    if reconciliation_status:
+        saved_result = load_reconciliation_result(session)
+        changed = False
+        if saved_result:
+            title_key = title.casefold().strip()
+            author_key = author.casefold().strip()
+            for author_result in saved_result.get('authors') or []:
+                if str(author_result.get('author') or '').casefold().strip() != author_key:
+                    continue
+                for series in author_result.get('series') or []:
+                    for book in series.get('books') or []:
+                        if str(book.get('local_title') or '').casefold().strip() == title_key:
+                            book['status'] = reconciliation_status
+                            book['formats'] = []
+                            changed = True
+            if changed:
+                save_reconciliation_result(session, saved_result)
+
+    suffix = ' (retried)' if retried else ''
+    return jsonify({
+        'success': True,
+        'message': f'{message.format(title=title, author=author)}{suffix}',
+    })
+
+
+@app.teardown_appcontext
+def _close_request_database(_error=None):
+    session = g.pop('db_session', None)
+    engine = g.pop('db_engine', None)
+    _close_database(session, engine)
 
 
 def _validate_libby_csv(csv_path):
@@ -45,6 +260,14 @@ def _validate_libby_csv(csv_path):
     missing = {'title', 'author'} - fields
     if missing:
         raise ValueError("This does not look like a Libby history CSV (title and author columns are required).")
+
+
+def _compact_recommendations(recommendations):
+    """Remove fields the browser does not render from recommendation payloads."""
+    for recommendation in recommendations:
+        recommendation.pop('description', None)
+        if recommendation.get('reason') == recommendation.get('score_reason'):
+            recommendation.pop('reason', None)
 
 
 def _run_import_job(csv_path, original_name, progress):
@@ -87,8 +310,9 @@ def _run_catalog_job(*, force_refresh, only_recent, recent_years, progress):
             force_refresh=force_refresh,
             only_recent=only_recent,
             recent_years=recent_years,
-            # Cleanup and author merging remain review-first command-line tools.
-            auto_cleanup=False,
+            # Deterministic catalog cleanup is safe for unattended local jobs;
+            # fuzzy candidates and author merging remain review-first tools.
+            auto_cleanup=True,
             progress_callback=progress,
         )
         stopped_early = bool(result.get('stopped_early'))
@@ -105,6 +329,59 @@ def _run_catalog_job(*, force_refresh, only_recent, recent_years, progress):
             ),
         })
         return result
+    finally:
+        _close_database(session, engine)
+
+
+def _run_series_reconciliation_job(*, batch_size, reset, token, progress):
+    engine = None
+    session = None
+    try:
+        engine = init_db(str(DB_PATH))
+        session = get_session(engine)
+        candidates = load_visible_recommendation_candidates(session)
+        result = run_series_reconciliation(
+            session,
+            HardcoverClient(token),
+            candidates,
+            batch_size=batch_size,
+            reset=reset,
+            progress_callback=progress,
+        )
+        matched = sum(row.get('matched_recommendations', 0) for row in result['authors'])
+        result.update({
+            'kind': 'series_reconciliation',
+            'matched_recommendations': matched,
+            'message': (
+                f"Series reconciliation checked {result['processed_authors']} of "
+                f"{result['eligible_authors']} eligible authors and matched "
+                f"{matched} recommendations."
+            ),
+        })
+        return result
+    finally:
+        _close_database(session, engine)
+
+
+def _run_series_enrichment_job(*, force_refresh, token, progress):
+    engine = None
+    session = None
+    try:
+        engine = init_db(str(DB_PATH))
+        session = get_session(engine)
+        local_series = analyze_all_series(
+            session, format_filter=None, include_enrichment=False,
+        )['series']
+        # The provider calls the callback after each successful request. Its
+        # 1.2-second interval targets 50/minute under Hardcover's 60/minute cap.
+        provider = HardcoverClient(token, rate_limit_delay=REQUEST_INTERVAL_SECONDS)
+        return run_enrichment(
+            session,
+            provider,
+            local_series,
+            force_refresh=force_refresh,
+            progress_callback=progress,
+        )
     finally:
         _close_database(session, engine)
 
@@ -161,65 +438,355 @@ def format_date_delta(date_str):
         return "Unknown"
 
 
-def get_status():
+def get_status(session=None):
     """Get system status"""
     # Ensure database exists
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    engine = init_db(str(DB_PATH))
-    session = get_session(engine)
-    try:
-        total_books = session.query(Book).count()
-        total_authors = session.query(Author).count()
-        audiobooks = session.query(Book).filter_by(format='audiobook').count()
-        ebooks = session.query(Book).filter_by(format='ebook').count()
+    session = session or _request_database()
+    total_books = session.query(Book).count()
+    total_authors = session.query(Author).count()
+    audiobooks = session.query(Book).filter_by(format='audiobook').count()
+    ebooks = session.query(Book).filter_by(format='ebook').count()
 
-        # Get total series count
-        series_result = analyze_all_series(session, format_filter=None)
-        total_series = series_result.get('total_series', 0)
+    libby_import = session.query(SystemMetadata).filter_by(key='last_libby_import').first()
+    catalog_check = session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
 
-        libby_import = session.query(SystemMetadata).filter_by(key='last_libby_import').first()
-        catalog_check = session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
-
-        return {
-            'total_books': total_books,
-            'total_authors': total_authors,
-            'audiobooks': audiobooks,
-            'ebooks': ebooks,
-            'total_series': total_series,
-            'last_libby_import': format_date_delta(libby_import.value if libby_import else None),
-            'last_catalog_check': format_date_delta(catalog_check.value if catalog_check else None)
-        }
-    finally:
-        _close_database(session, engine)
+    return {
+        'total_books': total_books,
+        'total_authors': total_authors,
+        'audiobooks': audiobooks,
+        'ebooks': ebooks,
+        'last_libby_import': format_date_delta(libby_import.value if libby_import else None),
+        'last_catalog_check': format_date_delta(catalog_check.value if catalog_check else None)
+    }
 
 
 @app.route('/')
 def index():
     """Home page"""
-    status = get_status()
+    status = get_status(_request_database())
     return render_template('index.html', status=status)
 
 
 @app.route('/api/series')
 def api_series():
     """Get series analysis"""
-    engine = init_db(str(DB_PATH))
-    session = get_session(engine)
-    
+    session = _request_database()
     format_filter = request.args.get('format', None)
     result = analyze_all_series(session, format_filter=format_filter)
-    
+    result['hardcover_configured'] = bool(str(app.config.get('HARDCOVER_API_TOKEN') or '').strip())
     return jsonify(result)
+
+
+@app.route('/api/series/ignored', methods=['POST'])
+def api_update_ignored_progress_series():
+    """Temporarily hide or restore one locally catalogued series."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or '').strip()
+    author = str(data.get('author') or '').strip()
+    name = str(data.get('name') or '').strip()
+    if action not in {'ignore', 'restore'} or not author or not name:
+        return jsonify({'success': False, 'error': 'Missing series, author, or action.'}), 400
+    session = _request_database()
+    if action == 'ignore':
+        progress = analyze_all_series(session, format_filter=None)
+        matching_series = next((
+            series for series in progress['series']
+            if series['author'].casefold().strip() == author.casefold().strip()
+            and series['series_name'].casefold().strip() == name.casefold().strip()
+        ), None)
+        passed_titles = pass_titles_for_both_formats(
+            session, author=author,
+            titles=[book['title'] for book in (matching_series or {}).get('unread_books', [])],
+        )
+        ignored = ignore_progress_series(session, author=author, name=name)
+        message = f'Ignoring {name}; passed {len(passed_titles)} unread title(s) in both formats.'
+    else:
+        ignored = restore_progress_series(session, author=author, name=name)
+        message = f'Restored {name} to Reading progress.'
+        passed_titles = []
+    return jsonify({
+        'success': True,
+        'ignored_series': ignored,
+        'passed_titles': passed_titles,
+        'passed_count': len(passed_titles),
+        'message': message,
+    })
+
+
+@app.route('/api/series/hardcover-book-action', methods=['POST'])
+def api_hardcover_series_book_action():
+    """Hide one exact Hardcover series membership without suppressing same-title rows."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or '').strip()
+    title = str(data.get('title') or '').strip()
+    author = str(data.get('author') or '').strip()
+    try:
+        series_id = int(data.get('series_id'))
+        book_id = int(data.get('book_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Missing Hardcover series or book ID.'}), 400
+    if action not in {'duplicate', 'non_english'} or series_id < 1 or book_id < 1:
+        return jsonify({'success': False, 'error': 'Invalid Hardcover book action.'}), 400
+    if not title or not author:
+        return jsonify({'success': False, 'error': 'Missing title or author.'}), 400
+    actions = record_hardcover_book_action(
+        _request_database(),
+        action=action,
+        series_id=series_id,
+        book_id=book_id,
+        position=data.get('position'),
+        title=title,
+        author=author,
+    )
+    return jsonify({
+        'success': True,
+        'action': action,
+        'hidden_membership': {
+            'series_id': series_id,
+            'book_id': book_id,
+            'position': data.get('position'),
+        },
+        'saved_actions': len(actions),
+    })
+
+
+@app.route('/api/jobs/series-enrichment/status')
+def api_series_enrichment_job_status():
+    job = SERIES_ENRICHMENT_JOB_MANAGER.snapshot()
+    return jsonify({
+        'job': job,
+        'active': bool(job and job['state'] in {'queued', 'running'}),
+    })
+
+
+@app.route('/api/jobs/series-enrichment', methods=['POST'])
+def api_start_series_enrichment_job():
+    token = str(app.config.get('HARDCOVER_API_TOKEN') or '').strip()
+    if not token:
+        return jsonify({'error': 'Hardcover is not configured. Set HARDCOVER_API_TOKEN first.'}), 400
+    if SERIES_RECONCILIATION_JOB_MANAGER.is_active():
+        return jsonify({'error': 'Wait for the current Hardcover reconciliation to finish.'}), 409
+    force_refresh = bool((request.get_json(silent=True) or {}).get('force_refresh', False))
+    try:
+        job = SERIES_ENRICHMENT_JOB_MANAGER.start(
+            'series_enrichment',
+            'Reading Progress Enrichment',
+            lambda progress: _run_series_enrichment_job(
+                force_refresh=force_refresh,
+                token=token,
+                progress=progress,
+            ),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        return jsonify({'error': 'Series enrichment is already running.', 'job': exc.job}), 409
+
+
+@app.route('/api/series-reconciliation')
+def api_series_reconciliation():
+    """Return eligibility and the most recently saved structured comparison."""
+    session = _request_database()
+    candidates = load_visible_recommendation_candidates(session)
+    eligible = eligible_reconciliation_authors(candidates)
+    return jsonify({
+        'configured': bool(str(app.config.get('HARDCOVER_API_TOKEN') or '').strip()),
+        'threshold': MIN_RECOMMENDATIONS,
+        'default_batch_size': DEFAULT_BATCH_SIZE,
+        'max_batch_size': MAX_BATCH_SIZE,
+        'eligible_authors': eligible,
+        'ignored_series': load_ignored_series(session),
+        'result': load_reconciliation_result(session),
+    })
+
+
+@app.route('/api/series-reconciliation/ignored', methods=['POST'])
+def api_update_ignored_series():
+    """Temporarily exclude or restore one stable Hardcover series ID."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or '').strip()
+    try:
+        series_id = int(data.get('series_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Missing Hardcover series ID.'}), 400
+    if series_id < 1 or action not in {'ignore', 'restore'}:
+        return jsonify({'success': False, 'error': 'Invalid ignored-series action.'}), 400
+
+    session = _request_database()
+    if action == 'ignore':
+        name = str(data.get('name') or '').strip()
+        author = str(data.get('author') or '').strip()
+        if not name or not author:
+            return jsonify({'success': False, 'error': 'Missing series name or author.'}), 400
+        saved_result = load_reconciliation_result(session) or {}
+        matched_titles = []
+        for author_result in saved_result.get('authors') or []:
+            if str(author_result.get('author') or '').casefold().strip() != author.casefold().strip():
+                continue
+            for series in author_result.get('series') or []:
+                if int(series.get('hardcover_series_id') or 0) != series_id:
+                    continue
+                matched_titles.extend(
+                    str(book.get('local_title') or '').strip()
+                    for book in series.get('books') or []
+                    if book.get('status') == 'recommendation' and book.get('local_title')
+                )
+        passed_titles = pass_titles_for_both_formats(session, author=author, titles=matched_titles)
+        ignored = ignore_series(
+            session, series_id=series_id, name=name, author=author,
+        )
+        ignored = record_ignored_series_passes(
+            session, series_id=series_id, titles=passed_titles,
+        )
+        message = f'Ignoring {name}; passed {len(passed_titles)} matched title(s) in both formats.'
+    else:
+        ignored = restore_series(session, series_id)
+        passed_titles = []
+        message = 'Series restored. Run reconciliation again when you want to include it.'
+    return jsonify({
+        'success': True,
+        'ignored_series': ignored,
+        'passed_titles': passed_titles,
+        'passed_count': len(passed_titles),
+        'message': message,
+    })
+
+
+@app.route('/api/jobs/series-reconciliation/status')
+def api_series_reconciliation_job_status():
+    job = SERIES_RECONCILIATION_JOB_MANAGER.snapshot()
+    return jsonify({
+        'job': job,
+        'active': bool(job and job['state'] in {'queued', 'running'}),
+    })
+
+
+@app.route('/api/jobs/series-reconciliation', methods=['POST'])
+def api_start_series_reconciliation_job():
+    token = str(app.config.get('HARDCOVER_API_TOKEN') or '').strip()
+    if not token:
+        return jsonify({
+            'error': (
+                'Hardcover is not configured. Set HARDCOVER_API_TOKEN before starting BookPilot.'
+            ),
+        }), 400
+    if SERIES_ENRICHMENT_JOB_MANAGER.is_active():
+        return jsonify({'error': 'Wait for the current Hardcover series enrichment to finish.'}), 409
+    data = request.get_json(silent=True) or {}
+    try:
+        batch_size = int(data.get('batch_size', DEFAULT_BATCH_SIZE))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Batch size must be a number.'}), 400
+    if batch_size < 1 or batch_size > MAX_BATCH_SIZE:
+        return jsonify({'error': f'Batch size must be between 1 and {MAX_BATCH_SIZE}.'}), 400
+    reset = bool(data.get('reset', True))
+    try:
+        job = SERIES_RECONCILIATION_JOB_MANAGER.start(
+            'series_reconciliation',
+            'Series Reconciliation',
+            lambda progress: _run_series_reconciliation_job(
+                batch_size=batch_size,
+                reset=reset,
+                token=token,
+                progress=progress,
+            ),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        return jsonify({
+            'error': 'A series reconciliation is already running.',
+            'job': exc.job,
+        }), 409
+
+
+@app.route('/api/series-review/mark-read', methods=['POST'])
+def api_series_review_mark_read():
+    """Mark one title or a complete reviewed series as read in every format."""
+    data = request.get_json(silent=True) or {}
+    author = str(data.get('author') or '').strip()
+    raw_books = data.get('books')
+    if raw_books is None:
+        raw_books = [{'title': data.get('title'), 'formats': data.get('formats')}]
+    if not author or not isinstance(raw_books, list) or not raw_books or len(raw_books) > 250:
+        return jsonify({'success': False, 'error': 'Missing title, author, or recommendation format'}), 400
+
+    operations = set()
+    for raw_book in raw_books:
+        if not isinstance(raw_book, dict):
+            return jsonify({'success': False, 'error': 'Invalid series book payload'}), 400
+        title = str(raw_book.get('title') or '').strip()
+        formats = raw_book.get('formats') or []
+        if isinstance(formats, str):
+            formats = [formats]
+        formats = sorted({str(value).strip() for value in formats} & {'ebook', 'audiobook'})
+        if not title or not formats:
+            return jsonify({'success': False, 'error': 'Missing title, author, or recommendation format'}), 400
+        operations.update((title, format_type) for format_type in formats)
+
+    session = _request_database()
+    now = datetime.utcnow()
+    for attempt in range(4):
+        try:
+            for title, format_type in sorted(operations):
+                session.execute(_recommendation_upsert_statement(
+                    title=title,
+                    author=author,
+                    format_type=format_type,
+                    insert_values={'already_read': True, 'feedback_date': now},
+                    update_values={'already_read': True, 'feedback_date': now},
+                ))
+            session.commit()
+            break
+        except OperationalError as exc:
+            session.rollback()
+            if 'locked' not in str(exc).lower():
+                return jsonify({'success': False, 'error': str(exc)}), 500
+            if attempt == 3:
+                return jsonify({
+                    'success': False,
+                    'error': 'Database is currently locked. Please try again in a moment.',
+                    'retry': True,
+                }), 503
+            time.sleep(0.1 * (2 ** attempt))
+        except Exception as exc:
+            session.rollback()
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    title_count = len({title for title, _format in operations})
+    saved_result = load_reconciliation_result(session)
+    if saved_result:
+        marked_titles = {title.casefold().strip() for title, _format in operations}
+        for author_result in saved_result.get('authors') or []:
+            if str(author_result.get('author') or '').casefold().strip() != author.casefold():
+                continue
+            for series in author_result.get('series') or []:
+                for book in series.get('books') or []:
+                    if str(book.get('local_title') or '').casefold().strip() in marked_titles:
+                        book['status'] = 'read'
+                        book['formats'] = []
+        save_reconciliation_result(session, saved_result)
+    return jsonify({
+        'success': True,
+        'titles_marked': title_count,
+        'format_records_marked': len(operations),
+        'formats_marked': sorted({format_type for _title, format_type in operations}),
+        'message': (
+            f'Marked {title_count} title'
+            f'{"s" if title_count != 1 else ""} by {author} as already read'
+        ),
+    })
 
 
 @app.route('/api/recommendations/audiobook')
 def api_recommendations_audiobook():
     """Get audiobook recommendations, organized by Fiction/Non-Fiction"""
+    session = None
     try:
-        engine = init_db(str(DB_PATH))
-        session = get_session(engine)
+        session = _request_database()
         
-        recommendations = recommend_audiobooks(session)
+        all_recommendations = recommend_audiobooks(session)
+        _compact_recommendations(all_recommendations)
+        recommendations = list(all_recommendations)
         
         # Filter out thumbs down, already_read, non_english, and duplicate recommendations
         # Use case-insensitive matching to match how feedback is saved
@@ -255,10 +822,8 @@ def api_recommendations_audiobook():
         
         # Get hidden authors for the hidden section (before filtering them out)
         from sqlalchemy import func
-        hidden_authors_list = session.query(Author).filter_by(hidden=True).all()
         hidden_authors_data = []
-        all_recommendations = recommend_audiobooks(session)
-        for author in hidden_authors_list:
+        for author in hidden_authors:
             author_recs = [r for r in all_recommendations if r.get('author', '').lower().strip() == author.name.lower().strip()]
             if author_recs:
                 hidden_authors_data.append({
@@ -279,18 +844,37 @@ def api_recommendations_audiobook():
 @app.route('/api/recommendations/ebook')
 def api_recommendations_ebook():
     """Get ebook recommendations, organized by Fiction/Non-Fiction"""
+    session = None
     try:
-        engine = init_db(str(DB_PATH))
-        session = get_session(engine)
+        session = _request_database()
         
-        recommendations = recommend_new_books(session, category=None)
+        generated_recommendations = recommend_new_books(session, category=None)
         
         # Flatten if grouped by category (recommend_new_books returns dict when category is None)
-        if isinstance(recommendations, dict):
-            flat_recs = []
-            for cat_recs in recommendations.values():
-                flat_recs.extend(cat_recs)
-            recommendations = flat_recs
+        if isinstance(generated_recommendations, dict):
+            flattened = [
+                recommendation
+                for category_recommendations in generated_recommendations.values()
+                for recommendation in category_recommendations
+            ]
+        else:
+            flattened = list(generated_recommendations)
+
+        # A recommendation can appear in more than one category. Return each
+        # catalog book once so the browser has less JSON and fewer cards to build.
+        all_recommendations = []
+        seen_recommendations = set()
+        for recommendation in flattened:
+            identity = recommendation.get('catalog_book_id') or (
+                recommendation.get('title', '').casefold().strip(),
+                recommendation.get('author', '').casefold().strip(),
+            )
+            if identity in seen_recommendations:
+                continue
+            seen_recommendations.add(identity)
+            all_recommendations.append(recommendation)
+        _compact_recommendations(all_recommendations)
+        recommendations = list(all_recommendations)
         
         # Filter out thumbs down, already_read, non_english, and duplicate recommendations
         # Use case-insensitive matching to match how feedback is saved
@@ -326,15 +910,8 @@ def api_recommendations_ebook():
         
         # Get hidden authors for the hidden section (before filtering them out)
         from sqlalchemy import func
-        hidden_authors_list = session.query(Author).filter_by(hidden=True).all()
         hidden_authors_data = []
-        all_recommendations = recommend_new_books(session, category=None)
-        if isinstance(all_recommendations, dict):
-            flat_all_recs = []
-            for cat_recs in all_recommendations.values():
-                flat_all_recs.extend(cat_recs)
-            all_recommendations = flat_all_recs
-        for author in hidden_authors_list:
+        for author in hidden_authors:
             author_recs = [r for r in all_recommendations if r.get('author', '').lower().strip() == author.name.lower().strip()]
             if author_recs:
                 hidden_authors_data.append({
@@ -355,7 +932,7 @@ def api_recommendations_ebook():
 @app.route('/api/status')
 def api_status():
     """Get system status"""
-    return jsonify(get_status())
+    return jsonify(get_status(_request_database()))
 
 
 @app.route('/api/jobs/status')
@@ -455,421 +1032,72 @@ def api_start_full_catalog_job():
 @app.route('/api/recommendations/<format_type>/feedback', methods=['POST'])
 def api_recommendation_feedback(format_type):
     """Handle thumbs up/down feedback for recommendations"""
-    from sqlalchemy import func
-    import time
-    
-    try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
-        
-        data = request.json
-        title = data.get('title', '').strip()
-        author = data.get('author', '').strip()
-        thumbs_up = data.get('thumbs_up', False)
-        thumbs_down = data.get('thumbs_down', False)
-        
-        if not title or not author:
-            return jsonify({'success': False, 'error': 'Missing title or author'}), 400
-        
-        # Find or create recommendation (use case-insensitive matching)
-        rec = session.query(Recommendation).filter(
-            func.lower(Recommendation.title) == title.lower(),
-            func.lower(Recommendation.author) == author.lower(),
-            Recommendation.format == format_type
-        ).first()
-        
-        if not rec:
-            # Create new recommendation record
-            rec = Recommendation(
-                title=title,
-                author=author,
-                format=format_type,
-                thumbs_up=thumbs_up if thumbs_up else None,
-                thumbs_down=thumbs_down if thumbs_down else None,
-                feedback_date=datetime.utcnow()
-            )
-            session.add(rec)
-        else:
-            # Update existing
-            if thumbs_up:
-                rec.thumbs_up = True
-                rec.thumbs_down = False
-            elif thumbs_down:
-                rec.thumbs_up = False
-                rec.thumbs_down = True
-            rec.feedback_date = datetime.utcnow()
-        
-        try:
-            session.commit()
-            return jsonify({'success': True, 'message': f'Feedback saved for "{title}" by {author}'})
-        except Exception as db_error:
-            error_str = str(db_error).lower()
-            if 'locked' in error_str:
-                session.rollback()
-                # Retry with exponential backoff
-                max_retries = 3
-                for attempt in range(max_retries):
-                    time.sleep(0.1 * (2 ** attempt))  # 0.1s, 0.2s, 0.4s
-                    try:
-                        # Re-query and update
-                        rec = session.query(Recommendation).filter(
-                            func.lower(Recommendation.title) == title.lower(),
-                            func.lower(Recommendation.author) == author.lower(),
-                            Recommendation.format == format_type
-                        ).first()
-                        if not rec:
-                            rec = Recommendation(
-                                title=title,
-                                author=author,
-                                format=format_type,
-                                thumbs_up=thumbs_up if thumbs_up else None,
-                                thumbs_down=thumbs_down if thumbs_down else None,
-                                feedback_date=datetime.utcnow()
-                            )
-                            session.add(rec)
-                        else:
-                            if thumbs_up:
-                                rec.thumbs_up = True
-                                rec.thumbs_down = False
-                            elif thumbs_down:
-                                rec.thumbs_up = False
-                                rec.thumbs_down = True
-                            rec.feedback_date = datetime.utcnow()
-                        session.commit()
-                        return jsonify({'success': True, 'message': f'Feedback saved for "{title}" by {author} (retried)'})
-                    except Exception as retry_error:
-                        if attempt == max_retries - 1:
-                            session.rollback()
-                            return jsonify({
-                                'success': False,
-                                'error': 'Database is currently locked. Please try again in a moment.',
-                                'retry': True
-                            }), 503
-                        session.rollback()
-                        continue
-            else:
-                session.rollback()
-                import traceback
-                return jsonify({
-                    'success': False,
-                    'error': str(db_error),
-                    'traceback': traceback.format_exc()
-                }), 500
-    except Exception as e:
-        import traceback
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
+    data = request.get_json(silent=True) or {}
+    thumbs_up = bool(data.get('thumbs_up', False))
+    thumbs_down = bool(data.get('thumbs_down', False))
+
+    insert_values = {
+        'thumbs_up': True if thumbs_up else None,
+        'thumbs_down': True if thumbs_down else None,
+    }
+    update_values = {}
+    if thumbs_up:
+        update_values.update(thumbs_up=True, thumbs_down=False)
+    elif thumbs_down:
+        update_values.update(thumbs_up=False, thumbs_down=True)
+
+    return _recommendation_action_response(
+        format_type,
+        insert_values=insert_values,
+        update_values=update_values,
+        message='Feedback saved for "{title}" by {author}',
+    )
 
 
 @app.route('/api/recommendations/<format_type>/flag-non-english', methods=['POST'])
 def api_flag_non_english(format_type):
     """Flag a recommendation as non-English"""
-    from sqlalchemy import func
-    import time
-    
-    try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
-        
-        data = request.json
-        title = data.get('title', '').strip()
-        author = data.get('author', '').strip()
-        
-        if not title or not author:
-            return jsonify({'success': False, 'error': 'Missing title or author'}), 400
-        
-        # Find or create recommendation (use case-insensitive matching)
-        rec = session.query(Recommendation).filter(
-            func.lower(Recommendation.title) == title.lower(),
-            func.lower(Recommendation.author) == author.lower(),
-            Recommendation.format == format_type
-        ).first()
-        
-        if not rec:
-            # Create new recommendation record
-            rec = Recommendation(
-                title=title,
-                author=author,
-                format=format_type,
-                non_english=True,
-                language_flag_source='manual',
-                feedback_date=datetime.utcnow()
-            )
-            session.add(rec)
-        else:
-            rec.non_english = True
-            rec.language_flag_source = 'manual'
-            rec.feedback_date = datetime.utcnow()
-        
-        try:
-            session.commit()
-            return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as non-English'})
-        except Exception as db_error:
-            error_str = str(db_error).lower()
-            if 'locked' in error_str:
-                session.rollback()
-                # Retry with exponential backoff
-                max_retries = 3
-                for attempt in range(max_retries):
-                    time.sleep(0.1 * (2 ** attempt))  # 0.1s, 0.2s, 0.4s
-                    try:
-                        # Re-query and update
-                        rec = session.query(Recommendation).filter(
-                            func.lower(Recommendation.title) == title.lower(),
-                            func.lower(Recommendation.author) == author.lower(),
-                            Recommendation.format == format_type
-                        ).first()
-                        if not rec:
-                            rec = Recommendation(
-                                title=title,
-                                author=author,
-                                format=format_type,
-                                non_english=True,
-                                language_flag_source='manual',
-                                feedback_date=datetime.utcnow()
-                            )
-                            session.add(rec)
-                        else:
-                            rec.non_english = True
-                            rec.language_flag_source = 'manual'
-                            rec.feedback_date = datetime.utcnow()
-                        session.commit()
-                        return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as non-English (retried)'})
-                    except Exception as retry_error:
-                        if attempt == max_retries - 1:
-                            session.rollback()
-                            return jsonify({
-                                'success': False,
-                                'error': 'Database is currently locked. Please try again in a moment.',
-                                'retry': True
-                            }), 503
-                        session.rollback()
-                        continue
-            else:
-                session.rollback()
-                import traceback
-                return jsonify({
-                    'success': False,
-                    'error': str(db_error),
-                    'traceback': traceback.format_exc()
-                }), 500
-    except Exception as e:
-        import traceback
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
+    return _recommendation_action_response(
+        format_type,
+        insert_values={
+            'non_english': True,
+            'language_flag_source': 'manual',
+        },
+        update_values={
+            'non_english': True,
+            'language_flag_source': 'manual',
+        },
+        message='Flagged "{title}" by {author} as non-English',
+    )
 
 
 @app.route('/api/recommendations/<format_type>/flag-already-read', methods=['POST'])
 def api_flag_already_read(format_type):
     """Flag a recommendation as already read"""
-    from sqlalchemy import func
-    import time
-    
-    try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
-        
-        data = request.json
-        title = data.get('title', '').strip()
-        author = data.get('author', '').strip()
-        
-        if not title or not author:
-            return jsonify({'success': False, 'error': 'Missing title or author'}), 400
-        
-        # Find or create recommendation (use case-insensitive matching)
-        rec = session.query(Recommendation).filter(
-            func.lower(Recommendation.title) == title.lower(),
-            func.lower(Recommendation.author) == author.lower(),
-            Recommendation.format == format_type
-        ).first()
-        
-        if not rec:
-            # Create new recommendation record
-            rec = Recommendation(
-                title=title,
-                author=author,
-                format=format_type,
-                already_read=True,
-                feedback_date=datetime.utcnow()
-            )
-            session.add(rec)
-        else:
-            rec.already_read = True
-            rec.feedback_date = datetime.utcnow()
-        
-        try:
-            session.commit()
-            return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as already read'})
-        except Exception as db_error:
-            error_str = str(db_error).lower()
-            if 'locked' in error_str:
-                session.rollback()
-                # Retry with exponential backoff
-                max_retries = 3
-                for attempt in range(max_retries):
-                    time.sleep(0.1 * (2 ** attempt))  # 0.1s, 0.2s, 0.4s
-                    try:
-                        # Re-query and update
-                        rec = session.query(Recommendation).filter(
-                            func.lower(Recommendation.title) == title.lower(),
-                            func.lower(Recommendation.author) == author.lower(),
-                            Recommendation.format == format_type
-                        ).first()
-                        if not rec:
-                            rec = Recommendation(
-                                title=title,
-                                author=author,
-                                format=format_type,
-                                already_read=True,
-                                feedback_date=datetime.utcnow()
-                            )
-                            session.add(rec)
-                        else:
-                            rec.already_read = True
-                            rec.feedback_date = datetime.utcnow()
-                        session.commit()
-                        return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as already read (retried)'})
-                    except Exception as retry_error:
-                        if attempt == max_retries - 1:
-                            session.rollback()
-                            return jsonify({
-                                'success': False,
-                                'error': 'Database is currently locked. Please try again in a moment.',
-                                'retry': True
-                            }), 503
-                        session.rollback()
-                        continue
-            else:
-                session.rollback()
-                import traceback
-                return jsonify({
-                    'success': False,
-                    'error': str(db_error),
-                    'traceback': traceback.format_exc()
-                }), 500
-    except Exception as e:
-        import traceback
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
+    return _recommendation_action_response(
+        format_type,
+        insert_values={'already_read': True},
+        update_values={'already_read': True},
+        message='Flagged "{title}" by {author} as already read',
+    )
 
 
 @app.route('/api/recommendations/<format_type>/flag-duplicate', methods=['POST'])
 def api_flag_duplicate(format_type):
     """Flag a recommendation as duplicate"""
-    from sqlalchemy import func
-    import time
-    
-    try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
-        
-        data = request.json
-        title = data.get('title', '').strip()
-        author = data.get('author', '').strip()
-        
-        if not title or not author:
-            return jsonify({'success': False, 'error': 'Missing title or author'}), 400
-        
-        # Find or create recommendation (use case-insensitive matching)
-        rec = session.query(Recommendation).filter(
-            func.lower(Recommendation.title) == title.lower(),
-            func.lower(Recommendation.author) == author.lower(),
-            Recommendation.format == format_type
-        ).first()
-        
-        if not rec:
-            # Create new recommendation record
-            rec = Recommendation(
-                title=title,
-                author=author,
-                format=format_type,
-                duplicate=True,
-                feedback_date=datetime.utcnow()
-            )
-            session.add(rec)
-        else:
-            rec.duplicate = True
-            rec.feedback_date = datetime.utcnow()
-        
-        try:
-            session.commit()
-            return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as duplicate'})
-        except Exception as db_error:
-            error_str = str(db_error).lower()
-            if 'locked' in error_str:
-                session.rollback()
-                # Retry with exponential backoff
-                max_retries = 3
-                for attempt in range(max_retries):
-                    time.sleep(0.1 * (2 ** attempt))  # 0.1s, 0.2s, 0.4s
-                    try:
-                        # Re-query and update
-                        rec = session.query(Recommendation).filter(
-                            func.lower(Recommendation.title) == title.lower(),
-                            func.lower(Recommendation.author) == author.lower(),
-                            Recommendation.format == format_type
-                        ).first()
-                        if not rec:
-                            rec = Recommendation(
-                                title=title,
-                                author=author,
-                                format=format_type,
-                                duplicate=True,
-                                feedback_date=datetime.utcnow()
-                            )
-                            session.add(rec)
-                        else:
-                            rec.duplicate = True
-                            rec.feedback_date = datetime.utcnow()
-                        session.commit()
-                        return jsonify({'success': True, 'message': f'Flagged "{title}" by {author} as duplicate (retried)'})
-                    except Exception as retry_error:
-                        if attempt == max_retries - 1:
-                            session.rollback()
-                            return jsonify({
-                                'success': False,
-                                'error': 'Database is currently locked. Please try again in a moment.',
-                                'retry': True
-                            }), 503
-                        session.rollback()
-                        continue
-            else:
-                session.rollback()
-                import traceback
-                return jsonify({
-                    'success': False,
-                    'error': str(db_error),
-                    'traceback': traceback.format_exc()
-                }), 500
-    except Exception as e:
-        import traceback
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'traceback': traceback.format_exc()
-        }), 500
+    return _recommendation_action_response(
+        format_type,
+        insert_values={'duplicate': True},
+        update_values={'duplicate': True},
+        message='Flagged "{title}" by {author} as duplicate',
+    )
 
 
 @app.route('/api/authors/<author_name>/hide', methods=['POST'])
 def api_hide_author(author_name):
     """Hide an author from recommendations"""
     try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
+        session = _request_database()
         
         from sqlalchemy import func
         author = session.query(Author).filter(
@@ -896,9 +1124,7 @@ def api_hide_author(author_name):
 def api_unhide_author(author_name):
     """Unhide an author from recommendations"""
     try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
+        session = _request_database()
         
         from sqlalchemy import func
         author = session.query(Author).filter(
@@ -925,38 +1151,56 @@ def api_unhide_author(author_name):
 def api_recategorize(format_type):
     """Recategorize a book - toggle between Fiction and Non-Fiction"""
     try:
-        engine = init_db(str(DB_PATH))
-        migrate_database(engine)
-        session = get_session(engine)
-        
-        data = request.json
-        title = data.get('title')
-        author = data.get('author')
-        
-        # Find or create the recommendation (like other endpoints do)
-        rec = session.query(Recommendation).filter_by(
-            title=title,
-            author=author,
-            format=format_type
-        ).first()
-        
+        session = _request_database()
+
+        data = request.get_json(silent=True) or {}
+        title = str(data.get('title') or '').strip()
+        author = str(data.get('author') or '').strip()
+        if not title or not author:
+            return jsonify({'success': False, 'error': 'Missing title or author'}), 400
+
+        def save_recommendation_category(category):
+            """Upsert the category in the same transaction as any catalog edit."""
+            statement = _recommendation_upsert_statement(
+                title=title,
+                author=author,
+                format_type=format_type,
+                insert_values={'category': category},
+                update_values={'category': category},
+            )
+            try:
+                session.execute(statement)
+                session.commit()
+                return None
+            except OperationalError as exc:
+                session.rollback()
+                if 'locked' in str(exc).lower():
+                    return jsonify({
+                        'success': False,
+                        'error': 'Database is currently locked. Your action will be saved when the database is available.',
+                        'retry': True,
+                    }), 503
+                raise
+            except Exception:
+                session.rollback()
+                raise
+
         # Try to find the catalog book to update its category
         from src.models import AuthorCatalogBook, Author
         from src.recommend import is_fiction
-        
+
         # Try to find author by name first (case-insensitive), then by normalized_name
-        from sqlalchemy import func
         author_obj = session.query(Author).filter(func.lower(Author.name) == author.lower()).first()
         if not author_obj:
             # Try normalized_name (case-insensitive)
             author_obj = session.query(Author).filter(func.lower(Author.normalized_name) == author.lower()).first()
-        
+
         # If still not found, try to find by partial match on name
         if not author_obj:
             author_obj = session.query(Author).filter(
                 func.lower(Author.name).contains(author.lower())
             ).first()
-        
+
         catalog_book = None
         if author_obj:
             # Try exact title match first
@@ -964,48 +1208,28 @@ def api_recategorize(format_type):
                 author_id=author_obj.id,
                 title=title
             ).first()
-            
+
             # If not found, try case-insensitive match
             if not catalog_book:
                 catalog_book = session.query(AuthorCatalogBook).filter(
                     AuthorCatalogBook.author_id == author_obj.id,
                     func.lower(AuthorCatalogBook.title) == title.lower()
                 ).first()
-        
+
         if not catalog_book:
             # If no catalog book found, we can't recategorize
-            # But we should still create/update the recommendation record
-            if not rec:
-                rec = Recommendation(
-                    title=title,
-                    author=author,
-                    format=format_type,
-                    category='Uncategorized'
-                )
-                session.add(rec)
-            else:
-                rec.category = 'Uncategorized'
-            
-            try:
-                session.commit()
-                return jsonify({'success': True, 'message': 'Book moved to Uncategorized (catalog book not found)'})
-            except Exception as db_error:
-                error_str = str(db_error).lower()
-                if 'locked' in error_str:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Database is currently locked. Your action will be saved when the database is available.',
-                        'retry': True
-                    }), 503
-                else:
-                    raise
-        
+            # But we should still atomically create/update the recommendation.
+            error_response = save_recommendation_category('Uncategorized')
+            if error_response:
+                return error_response
+            return jsonify({'success': True, 'message': 'Book moved to Uncategorized (catalog book not found)'})
+
         # Get current categories
         current_categories = catalog_book.categories.split(', ') if catalog_book.categories else []
-        
+
         # Determine if currently Fiction or Non-Fiction
         currently_fiction = is_fiction(current_categories)
-        
+
         # Toggle to the opposite category
         if currently_fiction:
             # Move to Non-Fiction: add a non-fiction keyword
@@ -1035,7 +1259,7 @@ def api_recategorize(format_type):
                 is_non_fiction = any(keyword in cat_lower for keyword in non_fiction_keywords)
                 if not is_non_fiction and cat != 'Non-Fiction':
                     filtered_categories.append(cat)
-            
+
             # If no categories left, set to a generic fiction category
             if not filtered_categories:
                 filtered_categories = ['Fiction']
@@ -1043,38 +1267,20 @@ def api_recategorize(format_type):
                 # Ensure we have "Fiction" in there
                 if 'Fiction' not in filtered_categories:
                     filtered_categories.insert(0, 'Fiction')
-            
+
             new_categories = ', '.join(filtered_categories)
-        
+
         # Update catalog book categories
         catalog_book.categories = new_categories
-        
-        # Update or create recommendation record
-        if not rec:
-            rec = Recommendation(
-                title=title,
-                author=author,
-                format=format_type,
-                category=new_categories
-            )
-            session.add(rec)
-        else:
-            rec.category = new_categories
-        
-        try:
-            session.commit()
-            target_category = 'Non-Fiction' if currently_fiction else 'Fiction'
-            return jsonify({'success': True, 'message': f'Book moved to {target_category}'})
-        except Exception as db_error:
-            error_str = str(db_error).lower()
-            if 'locked' in error_str:
-                return jsonify({
-                    'success': False,
-                    'error': 'Database is currently locked. Your action will be saved when the database is available.',
-                    'retry': True
-                }), 503
-            else:
-                raise
+
+        # The recommendation upsert and catalog edit commit together. This
+        # remains safe if another identical request creates the recommendation
+        # after this request has read the catalog row.
+        error_response = save_recommendation_category(new_categories)
+        if error_response:
+            return error_response
+        target_category = 'Non-Fiction' if currently_fiction else 'Fiction'
+        return jsonify({'success': True, 'message': f'Book moved to {target_category}'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1083,10 +1289,7 @@ def api_recategorize(format_type):
 def api_books_to_read():
     """Get all books marked with thumbs up, grouped by author (excluding books already in Libby)"""
     try:
-        engine = init_db(str(DB_PATH))
-        # Migrate database to add any missing columns
-        migrate_database(engine)
-        session = get_session(engine)
+        session = _request_database()
         
         # Get all recommendations with thumbs up that are NOT already read and NOT duplicates
         # Use filter() instead of filter_by() for better boolean handling
@@ -1108,7 +1311,7 @@ def api_books_to_read():
             # If column doesn't exist yet, try migration again
             if 'no such column' in error_str and 'non_english' in error_str:
                 # Try to migrate
-                migrate_database(engine)
+                migrate_database(g.db_engine)
                 # Try the query again
                 try:
                     recs = session.query(Recommendation).filter(
@@ -1200,10 +1403,12 @@ if __name__ == '__main__':
     # Run migrations on startup
     try:
         engine = init_db(str(DB_PATH))
-        migrate_database(engine)
         print("Database migrations completed")
     except Exception as e:
         print(f"Warning: Database migration failed: {e}")
+    finally:
+        if 'engine' in locals():
+            engine.dispose()
     
     # Library update endpoints modify local data, so keep the development app
     # reachable only from this computer.

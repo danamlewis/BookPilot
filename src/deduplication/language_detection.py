@@ -160,13 +160,13 @@ if __name__ == '__main__':
     test_cases = [
         ("Sheloshah shavuʻot be-Pariz by Author Name", True, "Hebrew transliteration"),
         ("Xjust Rewards Tegf by Author Name", True, "Suspicious encoding"),
-        ("The English Book Title", False, "English"),
-        ("Harry Potter and the Philosopher's Stone", False, "English"),
-        ("Le Petit Prince", True, "French article"),
-        ("Anne of Green Gables (French Edition)", True, "Language edition marker"),
+        ("The English Sample Title", False, "English"),
+        ("A Journey Through the Valley", False, "English"),
+        ("Le Jardin Secret", True, "French article"),
+        ("Sample Tale (French Edition)", True, "Language edition marker"),
         ("Book Title", False, "Simple English"),
         ("I Was Just Thinking", False, "English with 'I' (should not flag)"),
-        ("A Compendious History Of The British Churches", False, "English title (should not flag)"),
+        ("A Compendious History Of Sample Churches", False, "English title (should not flag)"),
     ]
     
     print("Testing non-English detection:")

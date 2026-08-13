@@ -1,10 +1,12 @@
 """Recommendation engine"""
+from collections import Counter, defaultdict
 from typing import List, Dict, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from .models import Book, Author, AuthorCatalogBook, Recommendation
 from .history_crosscheck import get_non_english_title_keys, get_read_title_keys, normalize_work_title
 from .preference_scoring import build_preference_profile, score_catalog_item
+from .ingest import normalize_author_name
 
 
 # Common non-fiction categories
@@ -111,84 +113,95 @@ def recommend_audiobooks(db_session: Session) -> List[Dict]:
     1. Same author audiobooks you haven't listened to
     2. Similar books (by genre/theme)
     """
-    # Audiobook candidates must be checked against every format already read.
-    your_audiobooks = db_session.query(Book).filter_by(format='audiobook').all()
-    your_authors = {b.author for b in your_audiobooks}
+    all_books = db_session.query(Book).all()
+    source_authors = {book.author for book in all_books if book.format == 'audiobook' and book.author}
     preference_profile = build_preference_profile(db_session)
-    
-    recommendations = []
-    
-    # 1. Same author recommendations
-    for author_name in your_authors:
-        # Try to find author by exact name match first (most reliable)
-        # The author_name from Book table is the normalized_name, but we want to find
-        # the Author record that matches. Since multiple authors can have the same
-        # normalized_name (e.g., co-authors), we need to be smart about matching.
-        
-        # First, try to find an author whose name exactly matches the normalized_name
-        # (this handles the case where the author name in Book is already normalized)
-        author = db_session.query(Author).filter_by(name=author_name).first()
-        
-        # If no exact match, try normalized_name but prefer authors whose name is similar
-        if not author:
-            # Get all authors with this normalized_name
-            candidates = db_session.query(Author).filter_by(normalized_name=author_name).all()
-            
-            # Prefer the one whose name matches the normalized_name exactly
-            # (e.g., if author_name is "Author Name", prefer Author.name == "Author Name")
-            for candidate in candidates:
-                if candidate.name == author_name:
-                    author = candidate
-                    break
-            
-            # If still no match, use the first one (fallback)
-            if not author and candidates:
-                author = candidates[0]
-        
-        if not author:
-            continue
+    all_authors = db_session.query(Author).all()
+    authors_by_name = {(author.name or '').casefold().strip(): author for author in all_authors}
+    authors_by_normalized = defaultdict(list)
+    for author in all_authors:
+        authors_by_normalized[(author.normalized_name or '').casefold().strip()].append(author)
 
-        read_title_keys = get_read_title_keys(db_session, author)
-        non_english_title_keys = get_non_english_title_keys(db_session, author)
-        
-        # Count books by this author (from Libby CSV + already_read recommendations)
-        books_by_author_count = count_books_by_author(db_session, author_name, author.name)
-        
-        # Get catalog books by this author that are available as audiobooks
-        # (We'll mark format_available when we fetch, for now get all)
-        catalog_books = db_session.query(AuthorCatalogBook).filter_by(
-            author_id=author.id,
-            is_read=False
+    selected = {}
+    for source_name in source_authors:
+        key = source_name.casefold().strip()
+        author = authors_by_name.get(key)
+        if not author:
+            candidates = authors_by_normalized.get(key, [])
+            author = next((candidate for candidate in candidates if candidate.name == source_name),
+                          candidates[0] if candidates else None)
+        if author:
+            selected[author.id] = (author, source_name)
+
+    history_titles = defaultdict(set)
+    book_counts = Counter()
+    for book in all_books:
+        if not book.author:
+            continue
+        book_counts[book.author] += 1
+        if book.title:
+            history_titles[normalize_author_name(book.author).casefold().strip()].add(
+                normalize_work_title(book.title)
+            )
+    marked_read = defaultdict(set)
+    non_english = defaultdict(set)
+    marked_read_counts = Counter()
+    for feedback in db_session.query(Recommendation).all():
+        if not feedback.author or not feedback.title:
+            continue
+        key = normalize_author_name(feedback.author).casefold().strip()
+        title_key = normalize_work_title(feedback.title)
+        if feedback.already_read:
+            marked_read[key].add(title_key)
+            marked_read_counts[feedback.author.casefold().strip()] += 1
+        if feedback.non_english:
+            non_english[key].add(title_key)
+
+    catalog_by_author = defaultdict(list)
+    if selected:
+        catalog_rows = db_session.query(AuthorCatalogBook).filter(
+            AuthorCatalogBook.author_id.in_(selected),
+            AuthorCatalogBook.is_read.is_(False),
         ).all()
-        
-        # Filter out non-English books
-        from src.deduplication.language_detection import is_english_title
-        catalog_books = [b for b in catalog_books if is_english_title(b.title, b.isbn, b.open_library_key)]
-        
-        for catalog_book in catalog_books:
-            # A print/ebook read counts too: don't recommend another edition of
-            # a work the user has already completed.
-            already_listened = normalize_work_title(catalog_book.title) in read_title_keys
-            flagged_non_english = normalize_work_title(catalog_book.title) in non_english_title_keys
-            
-            if not already_listened and not flagged_non_english:
-                rec_categories = catalog_book.categories.split(', ') if catalog_book.categories else []
-                personal_fit = score_catalog_item(preference_profile, catalog_book, books_by_author_count)
-                recommendations.append({
-                    'catalog_book_id': catalog_book.id,
-                    'open_library_key': catalog_book.open_library_key,
-                    'title': catalog_book.title,
-                    'author': author.name,
-                    'isbn': catalog_book.isbn,
-                    'recommendation_type': 'same_author',
-                    'reason': personal_fit['score_reason'],
-                    'categories': rec_categories,
-                    'format': 'audiobook',
-                    'books_by_author_count': books_by_author_count,
-                    'series_name': catalog_book.series_name if catalog_book.series_name else None,
-                    'series_position': catalog_book.series_position if catalog_book.series_position else None,
-                    **personal_fit,
-                })
+        for catalog_book in catalog_rows:
+            catalog_by_author[catalog_book.author_id].append(catalog_book)
+
+    from src.deduplication.language_detection import is_english_title
+    recommendations = []
+    for author_id, (author, source_name) in selected.items():
+        author_keys = {
+            normalize_author_name(value).casefold().strip()
+            for value in (author.name, author.normalized_name) if value
+        }
+        read_titles = set().union(*(
+            history_titles.get(key, set()) | marked_read.get(key, set()) for key in author_keys
+        ))
+        blocked_titles = set().union(*(non_english.get(key, set()) for key in author_keys))
+        books_by_author_count = book_counts[source_name] + marked_read_counts[author.name.casefold().strip()]
+        for catalog_book in catalog_by_author.get(author_id, []):
+            title_key = normalize_work_title(catalog_book.title)
+            if title_key in read_titles or title_key in blocked_titles:
+                continue
+            if not is_english_title(catalog_book.title, catalog_book.isbn, catalog_book.open_library_key):
+                continue
+            rec_categories = catalog_book.categories.split(', ') if catalog_book.categories else []
+            personal_fit = score_catalog_item(preference_profile, catalog_book, books_by_author_count)
+            recommendations.append({
+                'catalog_book_id': catalog_book.id,
+                'open_library_key': catalog_book.open_library_key,
+                'title': catalog_book.title,
+                'author': author.name,
+                'isbn': catalog_book.isbn,
+                'recommendation_type': 'same_author',
+                'reason': personal_fit['score_reason'],
+                'categories': rec_categories,
+                'format': 'audiobook',
+                'books_by_author_count': books_by_author_count,
+                'series_name': catalog_book.series_name or None,
+                'series_position': catalog_book.series_position or None,
+                'publication_date': catalog_book.publication_date,
+                **personal_fit,
+            })
     
     # Sort by score
     recommendations.sort(key=lambda x: x['similarity_score'], reverse=True)
@@ -208,51 +221,95 @@ def recommend_new_books(db_session: Session, category: str = None) -> List[Dict]
     """
     # Get all books you've read
     your_books = db_session.query(Book).all()
-    your_authors = {b.author for b in your_books}
+    your_authors = {b.author for b in your_books if b.author}
     preference_profile = build_preference_profile(db_session)
-    
-    recommendations = []
-    
-    # 1. Same author recommendations (ebooks you haven't read)
-    for author_name in your_authors:
-        # Try to find author by exact name match first (most reliable)
-        # The author_name from Book table is the normalized_name, but we want to find
-        # the Author record that matches. Since multiple authors can have the same
-        # normalized_name (e.g., co-authors), we need to be smart about matching.
-        
-        # First, try to find an author whose name exactly matches the normalized_name
-        # (this handles the case where the author name in Book is already normalized)
-        author = db_session.query(Author).filter_by(name=author_name).first()
-        
-        # If no exact match, try normalized_name but prefer authors whose name is similar
-        if not author:
-            # Get all authors with this normalized_name
-            candidates = db_session.query(Author).filter_by(normalized_name=author_name).all()
-            
-            # Prefer the one whose name matches the normalized_name exactly
-            # (e.g., if author_name is "Author Name", prefer Author.name == "Author Name")
-            for candidate in candidates:
-                if candidate.name == author_name:
-                    author = candidate
-                    break
-            
-            # If still no match, use the first one (fallback)
-            if not author and candidates:
-                author = candidates[0]
-        
-        if not author:
-            continue
-        
-        # Count books by this author (from Libby CSV + already_read recommendations)
-        books_by_author_count = count_books_by_author(db_session, author_name, author.name)
 
-        read_title_keys = get_read_title_keys(db_session, author)
-        non_english_title_keys = get_non_english_title_keys(db_session, author)
-        
-        catalog_books = db_session.query(AuthorCatalogBook).filter_by(
-            author_id=author.id,
-            is_read=False
+    # Load the supporting rows once. The previous implementation issued
+    # multiple queries per author (author lookup, history, suppressions, read
+    # count, and catalog), which made large libraries take tens of seconds.
+    all_authors = db_session.query(Author).all()
+    authors_by_name = {
+        (author.name or "").casefold().strip(): author
+        for author in all_authors
+        if author.name
+    }
+    authors_by_normalized = defaultdict(list)
+    for author in all_authors:
+        if author.normalized_name:
+            authors_by_normalized[author.normalized_name.casefold().strip()].append(author)
+
+    selected_authors = {}
+    source_name_by_author_id = {}
+    for author_name in your_authors:
+        lookup_key = author_name.casefold().strip()
+        author = authors_by_name.get(lookup_key)
+        if not author:
+            candidates = authors_by_normalized.get(lookup_key, [])
+            author = next(
+                (candidate for candidate in candidates if candidate.name == author_name),
+                candidates[0] if candidates else None,
+            )
+        if author:
+            selected_authors.setdefault(author.id, author)
+            source_name_by_author_id.setdefault(author.id, author_name)
+
+    book_counts = Counter(book.author for book in your_books if book.author)
+    history_titles = defaultdict(set)
+    for book in your_books:
+        if book.author and book.title:
+            key = normalize_author_name(book.author).casefold().strip()
+            title_key = normalize_work_title(book.title)
+            if title_key:
+                history_titles[key].add(title_key)
+
+    feedback_rows = db_session.query(Recommendation).all()
+    marked_read_titles = defaultdict(set)
+    non_english_titles = defaultdict(set)
+    marked_read_counts = Counter()
+    for feedback in feedback_rows:
+        if not feedback.author or not feedback.title:
+            continue
+        key = normalize_author_name(feedback.author).casefold().strip()
+        title_key = normalize_work_title(feedback.title)
+        if feedback.already_read:
+            marked_read_titles[key].add(title_key)
+            marked_read_counts[(feedback.author or "").casefold().strip()] += 1
+        if feedback.non_english:
+            non_english_titles[key].add(title_key)
+
+    catalog_by_author_id = defaultdict(list)
+    if selected_authors:
+        catalog_rows = db_session.query(AuthorCatalogBook).filter(
+            AuthorCatalogBook.author_id.in_(selected_authors),
+            AuthorCatalogBook.is_read.is_(False),
         ).all()
+        for catalog_book in catalog_rows:
+            catalog_by_author_id[catalog_book.author_id].append(catalog_book)
+
+    recommendations = []
+
+    # 1. Same author recommendations (ebooks you haven't read)
+    for author_id, author in selected_authors.items():
+        author_name = source_name_by_author_id[author_id]
+        # Count books by this author (from Libby CSV + already_read recommendations)
+        books_by_author_count = (
+            book_counts[author_name]
+            + marked_read_counts[(author.name or "").casefold().strip()]
+        )
+
+        author_keys = {
+            normalize_author_name(value).casefold().strip()
+            for value in (author.name, author.normalized_name)
+            if value
+        }
+        read_title_keys = set().union(
+            *(history_titles.get(key, set()) | marked_read_titles.get(key, set()) for key in author_keys)
+        )
+        non_english_title_keys = set().union(
+            *(non_english_titles.get(key, set()) for key in author_keys)
+        )
+
+        catalog_books = catalog_by_author_id.get(author.id, [])
         
         # Filter out non-English books
         from src.deduplication.language_detection import is_english_title
@@ -286,6 +343,7 @@ def recommend_new_books(db_session: Session, category: str = None) -> List[Dict]
                     'books_by_author_count': books_by_author_count,
                     'series_name': catalog_book.series_name if catalog_book.series_name else None,
                     'series_position': catalog_book.series_position if catalog_book.series_position else None,
+                    'publication_date': catalog_book.publication_date,
                     **personal_fit,
                 })
     
@@ -316,12 +374,26 @@ def recommend_new_books(db_session: Session, category: str = None) -> List[Dict]
 def save_recommendations(recommendations: List[Dict], db_session: Session, 
                         rec_type: str = 'audiobook'):
     """Save recommendations to database"""
+    existing_by_identity = {
+        (
+            (recommendation.title or '').casefold().strip(),
+            (recommendation.author or '').casefold().strip(),
+            recommendation.format or rec_type,
+        ): recommendation
+        for recommendation in db_session.query(Recommendation).all()
+    }
+    seen = set()
     for rec_data in recommendations:
-        # Check if recommendation already exists
-        existing = db_session.query(Recommendation).filter_by(
-            title=rec_data['title'],
-            author=rec_data['author']
-        ).first()
+        rec_format = rec_data.get('format', rec_type)
+        identity = (
+            rec_data['title'].casefold().strip(),
+            rec_data['author'].casefold().strip(),
+            rec_format,
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        existing = existing_by_identity.get(identity)
         
         if existing:
             # Update
@@ -334,12 +406,13 @@ def save_recommendations(recommendations: List[Dict], db_session: Session,
                 title=rec_data['title'],
                 author=rec_data['author'],
                 isbn=rec_data.get('isbn'),
-                format=rec_data.get('format', rec_type),
+                format=rec_format,
                 category=', '.join(rec_data.get('categories', [])),
                 recommendation_type=rec_data['recommendation_type'],
                 similarity_score=rec_data['similarity_score'],
                 reason=rec_data['reason']
             )
             db_session.add(recommendation)
+            existing_by_identity[identity] = recommendation
     
     db_session.commit()

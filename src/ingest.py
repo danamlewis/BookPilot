@@ -121,6 +121,21 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False, progress_ca
     books_added = 0
     authors_added = set()
 
+    # Build import identity maps once. Querying Book and Author for every CSV
+    # row made large, mostly-new imports scale linearly in SQL statements.
+    existing_books = db_session.query(Book).all()
+    books_by_isbn = {book.isbn: book for book in existing_books if book.isbn}
+    books_by_title_author = {
+        ((book.title or '').casefold().strip(), (book.author or '').casefold().strip()): book
+        for book in existing_books
+        if book.title and book.author
+    }
+    known_author_keys = {
+        (existing_author.normalized_name or '').casefold().strip()
+        for existing_author in db_session.query(Author).all()
+        if existing_author.normalized_name
+    }
+
     report_progress("Reading Libby history…", 0)
 
     with open(csv_path, 'r', encoding='utf-8-sig') as f:
@@ -150,14 +165,11 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False, progress_ca
             borrowed_date = parse_date(timestamp) if timestamp else None
             
             # Check if book already exists (by ISBN or title+author)
-            existing_book = None
-            if isbn:
-                existing_book = db_session.query(Book).filter_by(isbn=isbn).first()
+            existing_book = books_by_isbn.get(isbn) if isbn else None
             if not existing_book:
-                existing_book = db_session.query(Book).filter_by(
-                    title=title,
-                    author=author
-                ).first()
+                existing_book = books_by_title_author.get(
+                    (title.casefold().strip(), author.casefold().strip())
+                )
             
             if existing_book and not update_existing:
                 continue
@@ -165,6 +177,7 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False, progress_ca
             # Create or update book
             if existing_book and update_existing:
                 book = existing_book
+                previous_isbn = book.isbn
                 book.publisher = publisher
                 book.isbn = isbn or book.isbn
                 book.format = book_format
@@ -172,6 +185,17 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False, progress_ca
                 book.library = library or book.library
                 book.borrowed_date = borrowed_date or book.borrowed_date
                 book.loan_duration = details or book.loan_duration
+                # Keep the per-import identity cache in sync with the row. If
+                # this update replaces an ISBN, a later CSV row using the old
+                # ISBN must not be mistaken for this book.
+                if (
+                    previous_isbn
+                    and previous_isbn != book.isbn
+                    and books_by_isbn.get(previous_isbn) is book
+                ):
+                    books_by_isbn.pop(previous_isbn, None)
+                if book.isbn:
+                    books_by_isbn[book.isbn] = book
             else:
                 book = Book(
                     title=title,
@@ -185,22 +209,21 @@ def ingest_csv(csv_path, db_session: Session, update_existing=False, progress_ca
                     loan_duration=details
                 )
                 db_session.add(book)
+                books_by_title_author[(title.casefold().strip(), author.casefold().strip())] = book
+                if isbn:
+                    books_by_isbn[isbn] = book
                 books_added += 1
             
             # Track authors
-            if author not in authors_added:
-                # Check if author exists
-                existing_author = db_session.query(Author).filter_by(
+            author_key = author.casefold().strip()
+            if author_key not in known_author_keys:
+                author_obj = Author(
+                    name=author_raw,  # Keep original for display
                     normalized_name=author
-                ).first()
-                
-                if not existing_author:
-                    author_obj = Author(
-                        name=author_raw,  # Keep original for display
-                        normalized_name=author
-                    )
-                    db_session.add(author_obj)
-                    authors_added.add(author)
+                )
+                db_session.add(author_obj)
+                known_author_keys.add(author_key)
+                authors_added.add(author)
 
             if row_number == total_rows or row_number % 25 == 0:
                 report_progress(

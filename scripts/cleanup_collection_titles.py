@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove box sets, bundles, and numbered book ranges from BookPilot."""
+"""Preview or remove excluded packages and editions from BookPilot."""
 
 import argparse
 import sys
@@ -26,7 +26,11 @@ def main():
         print(f"{action} {result['recommendations_removed']} saved recommendations")
         for item in result["samples"][:args.limit]:
             author = f" by {item['author']}" if item["author"] else ""
-            print(f"  [{item['reason']}] {item['title']}{author}")
+            format_name = f"/{item['format']}" if item["format"] else ""
+            print(
+                f"  [{item['reason']}] {item['source']}{format_name} #{item['id']}: "
+                f"{item['title']}{author}"
+            )
         if not args.execute:
             print("Dry run only; use --execute to apply.")
     finally:

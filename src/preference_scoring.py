@@ -82,6 +82,7 @@ class PreferenceProfile:
     token_weights: Counter
     max_author_count: int
     saved_title_tokens: Set[str]
+    max_token_weight: float
 
 
 def build_preference_profile(db_session: Session) -> PreferenceProfile:
@@ -109,7 +110,12 @@ def build_preference_profile(db_session: Session) -> PreferenceProfile:
             weights[token] += 4.0
 
     counts = [count for _, count in db_session.query(Book.author, func.count(Book.id)).group_by(Book.author).all()]
-    return PreferenceProfile(weights, max(counts, default=1), saved_tokens)
+    return PreferenceProfile(
+        weights,
+        max(counts, default=1),
+        saved_tokens,
+        max(weights.values(), default=0.0),
+    )
 
 
 def _topic_match(profile: PreferenceProfile, item: AuthorCatalogBook) -> float:
@@ -123,7 +129,7 @@ def _topic_match(profile: PreferenceProfile, item: AuthorCatalogBook) -> float:
         return 0.0
 
     numerator = sum(math.log1p(profile.token_weights.get(token, 0.0)) * weight for token, weight in weighted_tokens)
-    denominator = sum(math.log1p(max(profile.token_weights.values())) * weight for _, weight in weighted_tokens)
+    denominator = sum(math.log1p(profile.max_token_weight) * weight for _, weight in weighted_tokens)
     score = numerator / denominator if denominator else 0.0
     if title_tokens & profile.saved_title_tokens:
         score = min(1.0, score + 0.15)

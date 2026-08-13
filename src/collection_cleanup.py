@@ -1,4 +1,4 @@
-"""Detect and remove multi-book packages from recommendations and catalogs."""
+"""Detect and remove unwanted packages/editions from recommendations and catalogs."""
 
 import re
 
@@ -13,11 +13,41 @@ COLLECTION_PATTERNS = (
         "book range",
         re.compile(r"\bbooks\s+\d+\s*(?:-|–|—|to)\s*\d+\b", re.IGNORECASE),
     ),
+    ("large print/type", re.compile(r"\blarge\s+(?:print|type)\b", re.IGNORECASE)),
+    # Keep this case-sensitive and require token boundaries. This catches
+    # "Audio CD", "Book/CD", "CD-ROM", and "2 CDs" without matching the
+    # letters "cd" inside an ordinary word.
+    ("cd edition", re.compile(r"\bCD(?:s|-ROM)?\b")),
+    (
+        "audio-media listing",
+        re.compile(
+            r"\bsound\s+recording\b|\baudio\s+pack\b|[([]\s*audio\s*[)\]]",
+            re.IGNORECASE,
+        ),
+    ),
+    # Limit abridgement markers to edition-like suffixes. This avoids matching
+    # an ordinary work whose actual title begins with words such as
+    # "An Unabridged History...".
+    (
+        "abridged edition marker",
+        re.compile(
+            r"(?:[-–—/]\s*|[([]\s*)(?:unabridged|abridged)\s*[)\]]?\s*$",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "physical-format listing",
+        re.compile(
+            r"\b(?:hardcover|hardback|paperback|mass\s+market|"
+            r"library\s+binding|slipcase)\b",
+            re.IGNORECASE,
+        ),
+    ),
 )
 
 
 def collection_title_reason(title):
-    """Return the matching multi-book-package rule, or None."""
+    """Return the matching excluded-edition/package rule, or None."""
     for reason, pattern in COLLECTION_PATTERNS:
         if pattern.search(title or ""):
             return reason
@@ -25,7 +55,7 @@ def collection_title_reason(title):
 
 
 def cleanup_collection_titles(session, catalog_book_ids=None, dry_run=False):
-    """Remove collection packages from the catalog and saved recommendations."""
+    """Remove excluded editions/packages from the catalog and recommendations."""
     catalog_query = session.query(AuthorCatalogBook)
     if catalog_book_ids is not None:
         catalog_query = catalog_query.filter(AuthorCatalogBook.id.in_(catalog_book_ids))
@@ -44,13 +74,19 @@ def cleanup_collection_titles(session, catalog_book_ids=None, dry_run=False):
     samples = []
     seen = set()
     for row in catalog_matches + recommendation_matches:
-        key = ((row.author if isinstance(row, Recommendation) else ""), row.title)
+        is_recommendation = isinstance(row, Recommendation)
+        author = row.author if is_recommendation else (row.author.name if row.author else None)
+        source = "recommendation" if is_recommendation else "catalog"
+        key = (source, row.id)
         if key in seen:
             continue
         seen.add(key)
         samples.append({
+            "source": source,
+            "id": row.id,
             "title": row.title,
-            "author": row.author if isinstance(row, Recommendation) else None,
+            "author": author,
+            "format": row.format if is_recommendation else None,
             "reason": collection_title_reason(row.title),
         })
 

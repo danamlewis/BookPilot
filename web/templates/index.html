@@ -515,6 +515,38 @@ a:focus-visible {
 .tab-content.active { display: block; }
 .tab-content.tab-enter { animation: panelIn 0.35s var(--ease); }
 
+.series-view-tabs {
+    display: inline-flex;
+    gap: 4px;
+    margin: 0 0 22px;
+    padding: 4px;
+    border: 1px solid var(--purple-soft);
+    border-radius: 12px;
+    background: var(--purple-tint);
+}
+
+.series-view-tab {
+    min-height: 40px;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 750;
+    cursor: pointer;
+}
+
+.series-view-tab:hover { color: var(--purple-deep); }
+.series-view-tab.active {
+    background: #fff;
+    color: var(--purple-deep);
+    box-shadow: var(--shadow-soft);
+}
+.series-view-panel { display: none; }
+.series-view-panel.active { display: block; animation: panelIn 0.25s var(--ease); }
+
 .panel-intro {
     margin: 0 0 18px;
     padding: 0 4px;
@@ -831,6 +863,34 @@ a:focus-visible {
 .series-item.partial { border-left-color: var(--danger); }
 .series-item.not-started { border-left-color: var(--warn); }
 
+.reading-progress-author .series-author-header {
+    margin: 0 0 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+.reading-progress-author .series-author-header:hover { background: transparent; }
+.reading-progress-author .series-author-content { padding-left: 0; }
+.reading-progress-series.series-item {
+    margin: 10px 0 0;
+    padding: 0;
+    border-left-width: 1px;
+}
+.reading-progress-book.book-item {
+    margin: 0;
+    border-width: 1px 0 0;
+    border-radius: 0;
+}
+.reading-progress-book[data-status="unread"] { background: #fff; }
+.reading-progress-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+.reading-progress-actions .action-btn { white-space: nowrap; }
+
 .series-header {
     font-weight: 700;
     font-size: 1.05rem;
@@ -871,6 +931,255 @@ a:focus-visible {
     display: inline-flex;
     gap: 4px;
     flex-wrap: wrap;
+}
+
+/* On-demand series reconciliation */
+.series-reconciliation-section {
+    margin: 0;
+}
+.series-reconciliation-intro {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+}
+.series-reconciliation-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.series-reconciliation-actions label {
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+.series-reconciliation-actions select {
+    min-height: 39px;
+    padding: 7px 28px 7px 10px;
+    border: 1px solid var(--purple-soft);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+}
+.series-reconciliation-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 16px;
+    padding: 11px 13px;
+    border-radius: 11px;
+    background: var(--purple-tint);
+    color: var(--purple-deep);
+    font-size: 0.85rem;
+}
+.series-reconciliation-progress[hidden] { display: none; }
+.series-enrichment-summary {
+    margin: -8px 4px 16px;
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.45;
+}
+.series-enrichment-summary strong { color: var(--purple-deep); }
+.series-enrichment-detail { display: block; margin-top: 3px; color: var(--muted); font-size: 0.78rem; }
+.series-reconciliation-progress .job-progress { display: inline-block; width: min(240px, 35vw); background: var(--purple-soft); }
+.series-reconciliation-progress .job-progress span { background: var(--purple); }
+.series-reconciliation-setup {
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--muted);
+}
+.series-reconciliation-setup code { color: var(--purple-deep); }
+.official-review-toolbar {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(160px, auto));
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: var(--shadow-soft);
+}
+
+.official-review-toolbar input,
+.official-review-toolbar select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid var(--purple-soft);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text);
+    font: inherit;
+}
+
+.official-author-review {
+    margin: 0 0 22px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: rgba(255,254,253,0.9);
+    box-shadow: var(--shadow);
+}
+
+.official-author-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.official-author-heading h3 { color: var(--purple-deep); font-size: 1.3rem; }
+.official-author-heading span { color: var(--muted); font-size: 0.85rem; }
+
+.official-series-group {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: clip;
+    background: #fff;
+}
+
+.official-series-group summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 14px;
+    cursor: pointer;
+    background: #f2eef8;
+    color: var(--purple-deep);
+    font-weight: 750;
+    list-style: none;
+}
+
+.official-series-group summary::-webkit-details-marker { display: none; }
+.official-series-source { color: var(--purple); font-size: 0.76rem; font-weight: 650; }
+.official-series-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }
+
+.official-series-book {
+    display: grid;
+    grid-template-columns: 3.5rem minmax(0, 1fr) minmax(160px, auto);
+    gap: 12px;
+    align-items: center;
+    min-height: 54px;
+    padding: 9px 13px;
+    border-top: 1px solid var(--border);
+}
+
+.official-series-book[data-status="read"] { background: #f2faf4; }
+.official-series-book[data-status="recommendation"] { background: #fbf8ff; }
+.official-series-book[data-status="other"] { color: var(--muted); }
+.official-series-position { color: var(--muted); font-size: 0.8rem; text-align: right; }
+.official-series-title { min-width: 0; font-weight: 650; }
+.official-series-local { display: block; color: var(--muted); font-size: 0.76rem; font-weight: 400; }
+.official-series-status { display: flex; justify-content: flex-end; align-items: center; gap: 7px; }
+
+.official-status-badge {
+    display: inline-flex;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--purple-tint);
+    color: var(--purple-ink);
+    font-size: 0.73rem;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.official-status-badge.read { background: #dff3e3; color: #236337; }
+.official-status-badge.other { background: #f0edf2; color: var(--muted); }
+.official-mark-read {
+    width: 84px;
+    min-height: 31px;
+    padding: 6px 10px;
+    border: 1px solid var(--purple-soft);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--purple);
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.official-recommendation-action {
+    min-height: 31px;
+    padding: 6px 10px;
+    border: 1px solid var(--purple-soft);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.official-recommendation-action:hover { color: var(--purple-deep); border-color: var(--purple-mid); }
+.official-mark-series-read {
+    width: 230px;
+    min-height: 31px;
+    padding: 6px 11px;
+    border: 1px solid var(--purple-mid);
+    border-radius: 999px;
+    background: var(--purple-ink);
+    color: #fff;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 750;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.official-ignore-series,
+.official-restore-series {
+    min-height: 31px;
+    padding: 6px 10px;
+    border: 1px solid var(--purple-soft);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.official-ignore-series:hover,
+.official-restore-series:hover { color: var(--purple-deep); border-color: var(--purple-mid); }
+.ignored-series-manager {
+    margin: 0 0 16px;
+    padding: 10px 13px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--surface);
+}
+.ignored-series-manager summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; font-weight: 700; }
+.ignored-series-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 2px 2px; }
+.ignored-series-row span { color: var(--text); font-size: 0.85rem; }
+.official-mark-read:hover { background: var(--purple-tint); border-color: var(--purple-mid); }
+.official-mark-series-read:hover { background: var(--purple-deep); }
+.official-mark-read:disabled,
+.official-mark-series-read:disabled { cursor: wait; opacity: 0.72; }
+.official-review-message { margin: 10px 2px; color: var(--muted); font-size: 0.86rem; }
+.official-review-message.error { color: var(--danger-deep); }
+.official-author-review[hidden],
+.official-series-group[hidden],
+.official-series-book[hidden] { display: none; }
+
+@media (max-width: 720px) {
+    .series-view-tabs { display: flex; width: 100%; }
+    .series-view-tab { flex: 1; padding-inline: 10px; }
+    .series-reconciliation-intro { align-items: flex-start; flex-direction: column; }
+    .official-review-toolbar { grid-template-columns: 1fr; }
+    .official-series-book { grid-template-columns: 2.5rem minmax(0, 1fr); }
+    .official-series-status { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
+    .official-author-heading { align-items: flex-start; flex-direction: column; }
+    .official-series-group summary { align-items: flex-start; flex-direction: column; }
+    .official-series-actions { justify-content: flex-start; }
 }
 
 /* Recommendations */
@@ -1466,11 +1775,56 @@ a:focus-visible {
 
     <main class="container workspace" id="main-content">
         <div id="series" class="tab-content active tab-enter">
-            <div class="panel-intro">
-                <h2>Series Analysis</h2>
-                <p>Partially read and not-started series from your catalog.</p>
+            <nav class="series-view-tabs" id="seriesViewTabs" role="tablist" aria-label="Series views">
+                <button class="series-view-tab active" id="seriesProgressTab" type="button" role="tab"
+                    data-series-view="progress" aria-selected="true" aria-controls="seriesProgressView">Reading progress</button>
+                <button class="series-view-tab" id="seriesReconciliationTab" type="button" role="tab"
+                    data-series-view="reconciliation" aria-selected="false" aria-controls="seriesReconciliationView">Reconciliation</button>
+            </nav>
+            <div class="series-view-panel active" id="seriesProgressView" role="tabpanel" aria-labelledby="seriesProgressTab">
+                <div class="panel-intro series-reconciliation-intro">
+                    <div>
+                        <h2>Series Analysis</h2>
+                        <p>Partially read and not-started series from your catalog, optionally completed with Hardcover series order.</p>
+                    </div>
+                    <button class="dialog-button primary" id="runSeriesEnrichment" type="button">Build full series catalog</button>
+                </div>
+                <div class="series-enrichment-summary" id="seriesEnrichmentSummary" aria-live="polite"></div>
+                <div class="series-reconciliation-progress" id="seriesEnrichmentProgress" hidden aria-live="polite">
+                    <div>
+                        <strong id="seriesEnrichmentProgressText">Preparing series enrichment…</strong>
+                        <span class="series-enrichment-detail" id="seriesEnrichmentProgressDetail"></span>
+                    </div>
+                    <span class="job-progress indeterminate"><span></span></span>
+                </div>
+                <div id="seriesContent" class="loading" aria-live="polite">Loading series analysis...</div>
             </div>
-            <div id="seriesContent" class="loading" aria-live="polite">Loading series analysis...</div>
+            <div class="series-view-panel" id="seriesReconciliationView" role="tabpanel" aria-labelledby="seriesReconciliationTab">
+                <section class="series-reconciliation-section" aria-labelledby="seriesReconciliationTitle">
+                    <div class="panel-intro series-reconciliation-intro">
+                        <div>
+                            <h2 id="seriesReconciliationTitle">Series Reconciliation</h2>
+                            <p>On demand, compare prolific recommendation authors with structured Hardcover series order.</p>
+                        </div>
+                        <div class="series-reconciliation-actions">
+                            <label>Authors per run
+                                <select id="seriesReconciliationBatchSize">
+                                    <option value="5">5</option>
+                                    <option value="10" selected>10</option>
+                                    <option value="15">15</option>
+                                    <option value="25">25</option>
+                                </select>
+                            </label>
+                            <button class="dialog-button primary" id="runSeriesReconciliation" type="button">Run reconciliation</button>
+                        </div>
+                    </div>
+                    <div class="series-reconciliation-progress" id="seriesReconciliationProgress" hidden aria-live="polite">
+                        <strong id="seriesReconciliationProgressText">Preparing reconciliation…</strong>
+                        <span class="job-progress indeterminate"><span></span></span>
+                    </div>
+                    <div id="seriesReviewContent" class="loading" aria-live="polite">Loading reconciliation status...</div>
+                </section>
+            </div>
         </div>
 
         <div id="audiobook" class="tab-content">
@@ -1501,6 +1855,15 @@ a:focus-visible {
     <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
 
     <script>
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>'"]/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            })[character]);
+        }
+
+        function escapeSelector(value) {
+            return CSS.escape(String(value ?? ''));
+        }
         const backToTopButton = document.querySelector('.back-to-top');
         const updateBackToTop = () => {
             backToTopButton.classList.toggle('visible', window.scrollY > 700);
@@ -1803,10 +2166,19 @@ a:focus-visible {
             Object.values(panels).forEach(([contentId]) => {
                 delete document.getElementById(contentId).dataset.loaded;
             });
+            delete document.getElementById('seriesReviewContent').dataset.loaded;
 
             const activePanel = document.querySelector('.tab-content.active');
             const entry = activePanel && panels[activePanel.id];
             if (!entry) return;
+            if (activePanel.id === 'series') {
+                const reconciliationActive = currentSeriesView() === 'reconciliation';
+                const content = document.getElementById(reconciliationActive ? 'seriesReviewContent' : 'seriesContent');
+                content.classList.add('loading');
+                content.textContent = 'Refreshing library view…';
+                loadActiveSeriesView();
+                return;
+            }
             const content = document.getElementById(entry[0]);
             content.classList.add('loading');
             content.textContent = 'Refreshing library view…';
@@ -1843,6 +2215,54 @@ a:focus-visible {
 
         refreshHeaderStatus();
         pollLibraryJob();
+
+        function currentSeriesView() {
+            return document.querySelector('.series-view-tab.active')?.dataset.seriesView || 'progress';
+        }
+
+        function loadActiveSeriesView() {
+            if (currentSeriesView() === 'reconciliation') {
+                if (!document.getElementById('seriesReviewContent').dataset.loaded) loadSeriesReview();
+            } else if (!document.getElementById('seriesContent').dataset.loaded) {
+                loadSeries();
+            }
+        }
+
+        function showSeriesView(viewName, {remember = true, focus = false} = {}) {
+            const view = viewName === 'reconciliation' ? 'reconciliation' : 'progress';
+            document.querySelectorAll('.series-view-tab').forEach(button => {
+                const selected = button.dataset.seriesView === view;
+                button.classList.toggle('active', selected);
+                button.setAttribute('aria-selected', String(selected));
+                button.tabIndex = selected ? 0 : -1;
+                if (selected && focus) button.focus();
+            });
+            document.querySelectorAll('.series-view-panel').forEach(panel => {
+                const selected = panel.id === (view === 'reconciliation' ? 'seriesReconciliationView' : 'seriesProgressView');
+                panel.classList.toggle('active', selected);
+                panel.setAttribute('aria-hidden', String(!selected));
+            });
+            if (remember) localStorage.setItem('bookpilotSeriesView', view);
+            loadActiveSeriesView();
+        }
+
+        const seriesViewTabs = document.getElementById('seriesViewTabs');
+        seriesViewTabs.addEventListener('click', event => {
+            const button = event.target.closest('.series-view-tab');
+            if (button) showSeriesView(button.dataset.seriesView);
+        });
+        seriesViewTabs.addEventListener('keydown', event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const views = ['progress', 'reconciliation'];
+            const currentIndex = views.indexOf(currentSeriesView());
+            let nextIndex = currentIndex;
+            if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % views.length;
+            if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + views.length) % views.length;
+            if (event.key === 'Home') nextIndex = 0;
+            if (event.key === 'End') nextIndex = views.length - 1;
+            showSeriesView(views[nextIndex], {focus: true});
+        });
         
         // Tab switching
         function showTab(tabName, evt) {
@@ -1869,8 +2289,8 @@ a:focus-visible {
             panel.classList.add('tab-enter');
             
             // Load content for tab
-            if (tabName === 'series' && !document.getElementById('seriesContent').dataset.loaded) {
-                loadSeries();
+            if (tabName === 'series') {
+                loadActiveSeriesView();
             } else if (tabName === 'audiobook' && !document.getElementById('audiobookContent').dataset.loaded) {
                 loadAudiobookRecs();
             } else if (tabName === 'ebook' && !document.getElementById('ebookContent').dataset.loaded) {
@@ -1952,6 +2372,37 @@ a:focus-visible {
                     empty.classList.toggle('visible', filtered && result.total === 0);
                     return;
                 }
+                if (recommendationsContainer?.dataset.currentView === 'author') {
+                    let shown = 0;
+                    const groups = [...content.querySelectorAll('.author-container')];
+                    groups.forEach(group => {
+                        const matches = (group.authorRecommendations || []).filter(rec =>
+                            recommendationMatchesFilters(rec, query, matchMode)
+                        );
+                        group.hidden = matches.length === 0;
+                        shown += matches.length;
+                        group.querySelectorAll('.recommendation-item').forEach(item => {
+                            const textMatches = !query || item.textContent.toLocaleLowerCase().includes(query);
+                            const tier = item.dataset.interestTier || 'possible';
+                            const contentType = item.dataset.contentType || 'trade_book';
+                            item.hidden = !(textMatches && (
+                                matchMode === 'all'
+                                || (matchMode === 'strong' && tier === 'strong')
+                                || (matchMode === 'possible' && (tier === 'strong' || tier === 'possible'))
+                                || (matchMode === 'trade' && contentType === 'trade_book')
+                                || (matchMode === 'batch' && tier === 'batch')
+                            ));
+                        });
+                    });
+                    const total = groups.reduce(
+                        (sum, group) => sum + (group.authorRecommendations?.length || 0),
+                        0
+                    );
+                    const filtered = Boolean(query) || matchMode !== 'all';
+                    count.textContent = filtered ? `${shown} of ${total}` : `${total}`;
+                    empty.classList.toggle('visible', filtered && shown === 0);
+                    return;
+                }
                 const items = [...content.querySelectorAll(options.itemSelector)];
                 let shown = 0;
 
@@ -1991,33 +2442,696 @@ a:focus-visible {
             if (matchSelect) matchSelect.addEventListener('change', update);
             update();
         }
-        
-        // Helper function to build HTML for a series item
-        function buildSeriesItemHTML(series, className) {
-            const unreadBooksHTML = series.unread_books.length > 0 ? `
-                <div class="book-list">
-                    <strong>Missing books:</strong>
-                    ${series.unread_books.slice(0, 5).map(b => `
-                        <div class="book-item" data-title="${b.title}" data-author="${series.author}">
-                            <span class="book-item-title">${b.position ? `#${b.position} ` : ''}${b.title}</span>
-                            <div class="book-item-actions">
-                                <button class="action-btn thumbs-up-btn" data-action="thumbs-up" data-title="${b.title}" data-author="${series.author}" title="Save">Save</button>
-                                <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${b.title}" data-author="${series.author}" title="Pass">Pass</button>
-                                <button class="action-btn already-read-btn" data-action="already-read" data-title="${b.title}" data-author="${series.author}" title="Already Read">already read</button>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            ` : '';
-            
+
+        function officialSeriesBookHTML(author, series, book) {
+            const isRead = book.status === 'read';
+            const isRecommendation = book.status === 'recommendation';
+            const formats = (book.formats || []).join(',');
+            const formatLabel = (book.formats || []).join(' + ');
+            const notEnglishAction = series.hardcover_series_id && book.hardcover_book_id ? `
+                <button class="official-recommendation-action official-not-english" type="button"
+                    data-title="${escapeHtml(book.local_title || book.book)}"
+                    data-author="${escapeHtml(author)}"
+                    data-hardcover-series-id="${escapeHtml(series.hardcover_series_id)}"
+                    data-hardcover-book-id="${escapeHtml(book.hardcover_book_id)}"
+                    data-series-position="${escapeHtml(book.series_number ?? '')}"
+                    title="Hide only this non-English Hardcover series match">Not English</button>` : '';
             return `
-                <div class="series-item ${className}">
-                    <div class="series-header">${series.series_name} by ${series.author}</div>
-                    <div class="series-meta">
-                        Read: ${series.books_read}/${series.total_books} (${series.completion_pct.toFixed(0)}%)
-                    </div>
-                    ${unreadBooksHTML}
+                <div class="official-series-book" data-status="${escapeHtml(book.status)}"
+                     data-search="${escapeHtml(`${author} ${series.name} ${book.book} ${book.local_title || ''}`.toLocaleLowerCase())}">
+                    <span class="official-series-position">${book.series_number !== null && book.series_number !== undefined ? `#${escapeHtml(book.series_number)}` : '—'}</span>
+                    <span class="official-series-title">
+                        ${escapeHtml(book.book)}
+                        ${book.local_title && book.local_title.toLocaleLowerCase() !== book.book.toLocaleLowerCase()
+                            ? `<span class="official-series-local">Matched locally as “${escapeHtml(book.local_title)}” · ${escapeHtml(book.match)}</span>`
+                            : ''}
+                    </span>
+                    <span class="official-series-status">
+                        ${isRead
+                            ? `<span class="official-status-badge read">Already read</span>${notEnglishAction}`
+                            : isRecommendation ? `<span class="official-status-badge">${escapeHtml(formatLabel)}</span>
+                               <button class="official-recommendation-action official-pass" type="button"
+                                   data-title="${escapeHtml(book.local_title)}"
+                                   data-author="${escapeHtml(author)}"
+                                   data-formats="${escapeHtml(formats)}"
+                                   title="Remove this local BookPilot recommendation">Pass</button>
+                               <button class="official-recommendation-action official-duplicate" type="button"
+                                   data-title="${escapeHtml(book.local_title)}"
+                                   data-author="${escapeHtml(author)}"
+                                   data-formats="${escapeHtml(formats)}"
+                                   data-hardcover-series-id="${escapeHtml(series.hardcover_series_id || '')}"
+                                   data-hardcover-book-id="${escapeHtml(book.hardcover_book_id || '')}"
+                                   data-series-position="${escapeHtml(book.series_number ?? '')}"
+                                   title="Hide only this duplicate Hardcover series match">Duplicate</button>
+                               ${notEnglishAction}
+                               <button class="official-mark-read" type="button"
+                                   data-title="${escapeHtml(book.local_title)}"
+                                   data-author="${escapeHtml(author)}"
+                                   data-formats="${escapeHtml(formats)}">Mark read</button>`
+                            : `<span class="official-status-badge other">Not recommended</span>${notEnglishAction}`}
+                    </span>
                 </div>
+            `;
+        }
+
+        function ignoredSeriesManagerHTML(ignoredSeries = []) {
+            if (!ignoredSeries.length) return '';
+            return `
+                <details class="ignored-series-manager">
+                    <summary>Ignored series (${ignoredSeries.length})</summary>
+                    ${ignoredSeries.map(series => `
+                        <div class="ignored-series-row">
+                            <span>${escapeHtml(series.name)} · ${escapeHtml(series.author)}${series.passed_count !== undefined ? ` · ${escapeHtml(series.passed_count)} title${series.passed_count === 1 ? '' : 's'} passed` : ''}</span>
+                            <button class="official-restore-series" type="button" data-series-id="${escapeHtml(series.series_id)}">Restore</button>
+                        </div>`).join('')}
+                </details>`;
+        }
+
+        function installIgnoredSeriesControls(content) {
+            content.querySelectorAll('.official-restore-series').forEach(button => {
+                button.addEventListener('click', async () => {
+                    button.disabled = true;
+                    button.textContent = 'Restoring…';
+                    const updated = await updateIgnoredSeries('restore', {
+                        series_id: Number(button.dataset.seriesId),
+                    });
+                    if (!updated) {
+                        button.disabled = false;
+                        button.textContent = 'Restore';
+                    }
+                });
+            });
+        }
+
+        function renderOfficialSeriesReview(content, envelope, filterState = null) {
+            const data = envelope.result;
+            if (!envelope.configured) {
+                content.innerHTML = `
+                    <div class="series-reconciliation-setup">
+                        Set <code>HARDCOVER_API_TOKEN</code> before starting BookPilot to enable structured series lookup. The token stays in the Python process and is never sent to this page.
+                    </div>
+                    ${ignoredSeriesManagerHTML(envelope.ignored_series)}`;
+                installIgnoredSeriesControls(content);
+                return;
+            }
+            if (!data) {
+                const eligible = envelope.eligible_authors || [];
+                const emptyState = eligible.length
+                    ? `<div class="empty-state"><strong>${eligible.length} authors are eligible.</strong><br>Run reconciliation to check authors with more than ${envelope.threshold} current ebook/audiobook recommendations, starting with the largest lists.</div>`
+                    : `<div class="empty-state">No authors currently have more than ${envelope.threshold} visible recommendations.</div>`;
+                content.innerHTML = `${emptyState}${ignoredSeriesManagerHTML(envelope.ignored_series)}`;
+                installIgnoredSeriesControls(content);
+                return;
+            }
+
+            const visibleAuthors = (data.authors || []).map(author => ({
+                ...author,
+                series: (author.series || []).filter(series => {
+                    const books = series.books || [];
+                    return books.some(book => book.status === 'recommendation');
+                }),
+            })).filter(author => author.series.length || author.lookup_status !== 'matched');
+            const matchedRecommendations = visibleAuthors.reduce((sum, author) => sum
+                + author.series.reduce((seriesSum, series) => seriesSum
+                    + (series.books || []).filter(book => book.status === 'recommendation').length, 0), 0);
+            const knownSeries = visibleAuthors.reduce((sum, author) => sum + (author.series || []).length, 0);
+            const authorsHTML = visibleAuthors.map(author => `
+                <section class="official-author-review" data-author="${escapeHtml(author.author)}">
+                    <div class="official-author-heading">
+                        <h3>${escapeHtml(author.author)}</h3>
+                        <span>${author.recommendation_count} recommendations · ${author.series.reduce((sum, series) => sum + (series.books || []).filter(book => book.status === 'recommendation').length, 0)} currently matched to series</span>
+                    </div>
+                    ${author.lookup_status === 'error' ? '<div class="error">Lookup failed for this author. See the error count above and retry later.</div>' : ''}
+                    ${author.lookup_status === 'author_not_found' ? '<div class="empty-state">No unambiguous Hardcover author match was found.</div>' : ''}
+                    ${(author.series || []).map(series => `
+                        <details class="official-series-group" open>
+                            <summary>
+                                <span>${escapeHtml(series.name)} · ${series.recommended_matches} recommendation match${series.recommended_matches === 1 ? '' : 'es'}</span>
+                                <span class="official-series-actions">
+                                    <a class="official-series-source" href="${escapeHtml(series.source_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Hardcover data ↗</a>
+                                    ${series.hardcover_series_id ? `<button class="official-ignore-series" type="button"
+                                        data-series-id="${escapeHtml(series.hardcover_series_id)}"
+                                        data-series="${escapeHtml(series.name)}"
+                                        data-author="${escapeHtml(author.author)}"
+                                        onclick="event.preventDefault();">Ignore for now</button>` : ''}
+                                    ${series.books.some(book => book.status === 'recommendation') ? `
+                                        <button class="official-mark-series-read" type="button"
+                                            data-author="${escapeHtml(author.author)}"
+                                            data-series="${escapeHtml(series.name)}"
+                                            onclick="event.preventDefault();">Mark matched recommendations read</button>
+                                    ` : ''}
+                                </span>
+                            </summary>
+                            ${series.books.map(book => officialSeriesBookHTML(author.author, series, book)).join('')}
+                        </details>
+                    `).join('')}
+                </section>
+            `).join('');
+
+            content.innerHTML = `
+                <div class="series-summary">
+                    <div class="series-summary-text">
+                        <span><strong>${data.processed_authors}</strong> / ${data.eligible_authors} eligible authors checked</span>
+                        <span><strong>${knownSeries}</strong> relevant series</span>
+                        <span><strong>${matchedRecommendations}</strong> recommendations matched</span>
+                        ${data.errors?.length ? `<span><strong>${data.errors.length}</strong> lookup errors</span>` : ''}
+                    </div>
+                    ${data.remaining_authors ? `<button class="dialog-button" id="continueSeriesReconciliation" type="button">Run next ${Math.min(data.batch_size, data.remaining_authors)} authors</button>` : ''}
+                </div>
+                ${ignoredSeriesManagerHTML(envelope.ignored_series)}
+                <div class="official-review-toolbar">
+                    <label><span class="sr-only">Search series reconciliation</span><input id="officialReviewSearch" type="search" placeholder="Search author, series, or title…"></label>
+                    <label><span class="sr-only">Filter author</span><select id="officialReviewAuthor"><option value="">All authors</option>${visibleAuthors.map(author => `<option value="${escapeHtml(author.author)}">${escapeHtml(author.author)}</option>`).join('')}</select></label>
+                    <label><span class="sr-only">Filter comparison status</span><select id="officialReviewStatus"><option value="actionable">Recommendations + reads</option><option value="recommendation">Recommendations only</option><option value="read">Already read only</option><option value="all">All series titles</option></select></label>
+                </div>
+                <p class="official-review-message" id="officialReviewMessage">Showing recommendation and read matches. Choose “All series titles” to see gaps around them.</p>
+                <div id="officialReviewAuthors">${authorsHTML || '<div class="empty-state">No current recommendations matched a known Hardcover series in this batch.</div>'}</div>
+            `;
+
+            const continueButton = content.querySelector('#continueSeriesReconciliation');
+            if (continueButton) continueButton.addEventListener('click', () => startSeriesReconciliation(false));
+            installIgnoredSeriesControls(content);
+
+            const search = content.querySelector('#officialReviewSearch');
+            const authorSelect = content.querySelector('#officialReviewAuthor');
+            const statusSelect = content.querySelector('#officialReviewStatus');
+            const message = content.querySelector('#officialReviewMessage');
+            const applyFilters = () => {
+                const query = search.value.trim().toLocaleLowerCase();
+                const selectedAuthor = authorSelect.value;
+                const selectedStatus = statusSelect.value;
+                let shown = 0;
+                content.querySelectorAll('.official-author-review').forEach(authorSection => {
+                    const authorMatches = !selectedAuthor || authorSection.dataset.author === selectedAuthor;
+                    let authorShown = 0;
+                    authorSection.querySelectorAll('.official-series-group').forEach(series => {
+                        let seriesShown = 0;
+                        series.querySelectorAll('.official-series-book').forEach(book => {
+                            const matchesStatus = selectedStatus === 'all'
+                                || (selectedStatus === 'actionable' && book.dataset.status !== 'other')
+                                || book.dataset.status === selectedStatus;
+                            const matchesText = !query || book.dataset.search.includes(query);
+                            book.hidden = !(authorMatches && matchesStatus && matchesText);
+                            if (!book.hidden) seriesShown += 1;
+                        });
+                        series.hidden = seriesShown === 0;
+                        authorShown += seriesShown;
+                    });
+                    authorSection.hidden = authorShown === 0;
+                    shown += authorShown;
+                });
+                message.textContent = shown
+                    ? `Showing ${shown} matched title${shown === 1 ? '' : 's'}.`
+                    : 'No titles match these filters.';
+            };
+            search.addEventListener('input', applyFilters);
+            authorSelect.addEventListener('change', applyFilters);
+            statusSelect.addEventListener('change', applyFilters);
+            if (filterState) {
+                search.value = filterState.search || '';
+                authorSelect.value = filterState.author || '';
+                statusSelect.value = filterState.status || 'actionable';
+                applyFilters();
+            } else applyFilters();
+
+            content.querySelector('#officialReviewAuthors').addEventListener('click', async event => {
+                const ignoreButton = event.target.closest('.official-ignore-series');
+                if (ignoreButton) {
+                    ignoreButton.disabled = true;
+                    ignoreButton.textContent = 'Ignoring…';
+                    const updated = await updateIgnoredSeries('ignore', {
+                        series_id: Number(ignoreButton.dataset.seriesId),
+                        name: ignoreButton.dataset.series,
+                        author: ignoreButton.dataset.author,
+                    });
+                    if (!updated) {
+                        ignoreButton.disabled = false;
+                        ignoreButton.textContent = 'Ignore for now';
+                    }
+                    return;
+                }
+                const recommendationAction = event.target.closest('.official-pass, .official-duplicate, .official-not-english');
+                if (recommendationAction) {
+                    const action = recommendationAction.classList.contains('official-not-english')
+                        ? 'non_english'
+                        : recommendationAction.classList.contains('official-duplicate') ? 'duplicate' : 'pass';
+                    if (action === 'non_english') {
+                        const updated = await updateHardcoverSeriesBook(recommendationAction, 'non_english');
+                        if (updated) removeReconciliationBookFromClientState(data, recommendationAction);
+                        return;
+                    }
+                    if (action === 'duplicate' && recommendationAction.dataset.hardcoverBookId) {
+                        const updated = await updateHardcoverSeriesBook(recommendationAction, 'duplicate');
+                        if (updated) removeReconciliationBookFromClientState(data, recommendationAction);
+                        return;
+                    }
+                    const originalText = recommendationAction.textContent;
+                    recommendationAction.disabled = true;
+                    recommendationAction.textContent = 'Saving…';
+                    const updated = await updateSeriesRecommendation(action, {
+                        title: recommendationAction.dataset.title,
+                        author: recommendationAction.dataset.author,
+                        formats: recommendationAction.dataset.formats.split(',').filter(Boolean),
+                    });
+                    if (updated) {
+                        (authorDataForMutation(data, recommendationAction.dataset.author)?.series || []).forEach(series => {
+                            series.books.forEach(book => {
+                                if (book.status === 'recommendation' && book.local_title === recommendationAction.dataset.title) {
+                                    book.status = 'other';
+                                    book.formats = [];
+                                }
+                            });
+                        });
+                        renderOfficialSeriesReview(content, envelope, filterState);
+                    } else {
+                        recommendationAction.disabled = false;
+                        recommendationAction.textContent = originalText;
+                    }
+                    return;
+                }
+                const button = event.target.closest('.official-mark-read, .official-mark-series-read');
+                if (!button) return;
+                const isSeriesAction = button.classList.contains('official-mark-series-read');
+                const authorName = button.dataset.author;
+                let books;
+                if (isSeriesAction) {
+                    const authorData = data.authors.find(author => author.author === authorName);
+                    const seriesData = authorData?.series.find(series => series.name === button.dataset.series);
+                    books = (seriesData?.books || [])
+                        .filter(book => book.status === 'recommendation')
+                        .map(book => ({title: book.local_title, formats: book.formats}));
+                } else {
+                    books = [{
+                        title: button.dataset.title,
+                        formats: button.dataset.formats.split(',').filter(Boolean),
+                    }];
+                }
+                if (!books.length) return;
+                button.disabled = true;
+                button.textContent = isSeriesAction ? 'Marking matches…' : 'Saving…';
+                message.classList.remove('error');
+                try {
+                    const response = await fetch('/api/series-review/mark-read', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            author: authorName,
+                            books,
+                        }),
+                    });
+                    const result = await response.json();
+                    if (!response.ok || !result.success) throw new Error(result.error || 'Unable to mark this title read.');
+                    delete document.getElementById('ebookContent').dataset.loaded;
+                    delete document.getElementById('audiobookContent').dataset.loaded;
+                    books.forEach(marked => {
+                        (authorDataForMutation(data, authorName)?.series || []).forEach(series => {
+                            series.books.forEach(book => {
+                                if (book.status === 'recommendation' && book.local_title === marked.title) {
+                                    book.status = 'read';
+                                    book.formats = [];
+                                }
+                            });
+                        });
+                    });
+                    renderOfficialSeriesReview(content, envelope, filterState);
+                } catch (error) {
+                    button.disabled = false;
+                    button.textContent = isSeriesAction ? 'Mark matched recommendations read' : 'Mark read';
+                    message.classList.add('error');
+                    message.textContent = error.message;
+                }
+            });
+        }
+
+        function authorDataForMutation(data, authorName) {
+            return (data.authors || []).find(author => author.author === authorName);
+        }
+
+        function removeReconciliationBookFromClientState(data, button) {
+            const author = authorDataForMutation(data, button.dataset.author);
+            const seriesId = String(button.dataset.hardcoverSeriesId || '');
+            const bookId = String(button.dataset.hardcoverBookId || '');
+            const position = String(button.dataset.seriesPosition || '');
+            (author?.series || []).forEach(series => {
+                if (String(series.hardcover_series_id || '') !== seriesId) return;
+                series.books = (series.books || []).filter(book => !(
+                    String(book.hardcover_book_id || '') === bookId
+                    && String(book.series_number ?? '') === position
+                ));
+                series.recommended_matches = new Set(
+                    series.books
+                        .filter(book => book.status === 'recommendation' && book.local_title)
+                        .map(book => book.local_title.toLocaleLowerCase().trim())
+                ).size;
+            });
+            if (author) {
+                author.matched_recommendations = new Set(
+                    (author.series || []).flatMap(series => (series.books || []))
+                        .filter(book => book.status === 'recommendation' && book.local_title)
+                        .map(book => book.local_title.toLocaleLowerCase().trim())
+                ).size;
+            }
+        }
+
+        async function updateSeriesRecommendation(action, book) {
+            const endpoint = action === 'duplicate' ? 'flag-duplicate' : 'feedback';
+            try {
+                const responses = await Promise.all(book.formats.map(format => fetch(
+                    `/api/recommendations/${format}/${endpoint}`,
+                    {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            title: book.title,
+                            author: book.author,
+                            ...(action === 'pass' ? {thumbs_down: true} : {}),
+                        }),
+                    },
+                )));
+                const results = await Promise.all(responses.map(response => response.json().catch(() => ({}))));
+                const failedIndex = responses.findIndex((response, index) => !response.ok || !results[index].success);
+                if (failedIndex >= 0) throw new Error(results[failedIndex].error || 'Unable to update this recommendation.');
+                suppressRecommendationInClientState('ebook', book.title, book.author);
+                suppressRecommendationInClientState('audiobook', book.title, book.author);
+                delete document.getElementById('ebookContent').dataset.loaded;
+                delete document.getElementById('audiobookContent').dataset.loaded;
+                return true;
+            } catch (error) {
+                const message = document.getElementById('seriesReviewContent').querySelector('#officialReviewMessage');
+                if (message) {
+                    message.classList.add('error');
+                    message.textContent = error.message;
+                }
+                return false;
+            }
+        }
+
+        async function updateIgnoredSeries(action, series) {
+            const content = document.getElementById('seriesReviewContent');
+            try {
+                const response = await fetch('/api/series-reconciliation/ignored', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action, ...series}),
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.error || 'Unable to update ignored series.');
+                await loadSeriesReview();
+                return true;
+            } catch (error) {
+                const message = content.querySelector('#officialReviewMessage');
+                if (message) {
+                    message.classList.add('error');
+                    message.textContent = error.message;
+                }
+                return false;
+            }
+        }
+
+        async function loadSeriesReview() {
+            const content = document.getElementById('seriesReviewContent');
+            const isRefresh = content.dataset.loaded === 'true';
+            const filterState = isRefresh ? {
+                search: content.querySelector('#officialReviewSearch')?.value || '',
+                author: content.querySelector('#officialReviewAuthor')?.value || '',
+                status: content.querySelector('#officialReviewStatus')?.value || 'actionable',
+            } : null;
+            if (!isRefresh) {
+                content.classList.add('loading');
+                content.textContent = 'Loading reconciliation status...';
+            }
+            content.setAttribute('aria-busy', 'true');
+            try {
+                const response = await fetch('/api/series-reconciliation');
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `Series reconciliation request failed (${response.status})`);
+                renderOfficialSeriesReview(content, data, filterState);
+                document.getElementById('runSeriesReconciliation').textContent = data.result ? 'Run again' : 'Run reconciliation';
+                content.dataset.loaded = 'true';
+                content.classList.remove('loading');
+                content.removeAttribute('aria-busy');
+            } catch (error) {
+                content.classList.remove('loading');
+                content.removeAttribute('aria-busy');
+                content.innerHTML = `<div class="error">Error loading series reconciliation: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        const runSeriesReconciliationButton = document.getElementById('runSeriesReconciliation');
+        const seriesReconciliationBatchSize = document.getElementById('seriesReconciliationBatchSize');
+        const seriesReconciliationProgress = document.getElementById('seriesReconciliationProgress');
+        const seriesReconciliationProgressText = document.getElementById('seriesReconciliationProgressText');
+        let lastSeriesReconciliationJobId = sessionStorage.getItem('bookpilotSeriesReconciliationJobId') || '';
+
+        async function startSeriesReconciliation(reset = true) {
+            runSeriesReconciliationButton.disabled = true;
+            seriesReconciliationProgress.hidden = false;
+            seriesReconciliationProgressText.textContent = reset
+                ? 'Starting a new reconciliation…'
+                : 'Starting the next author batch…';
+            try {
+                const response = await fetch('/api/jobs/series-reconciliation', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        batch_size: Number(seriesReconciliationBatchSize.value),
+                        reset,
+                    }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || `Reconciliation could not start (${response.status})`);
+                lastSeriesReconciliationJobId = data.job.id;
+                sessionStorage.setItem('bookpilotSeriesReconciliationJobId', data.job.id);
+                renderSeriesReconciliationJob(data.job);
+            } catch (error) {
+                runSeriesReconciliationButton.disabled = false;
+                seriesReconciliationProgress.hidden = false;
+                seriesReconciliationProgressText.textContent = error.message;
+            }
+        }
+
+        function renderSeriesReconciliationJob(job) {
+            const active = job && (job.state === 'queued' || job.state === 'running');
+            runSeriesReconciliationButton.disabled = Boolean(active);
+            seriesReconciliationBatchSize.disabled = Boolean(active);
+            seriesReconciliationProgress.hidden = !active && !(job && job.state === 'failed');
+            if (!job) return;
+            seriesReconciliationProgressText.textContent = job.state === 'failed'
+                ? `${job.label} failed — ${job.error || 'unknown error'}`
+                : job.message;
+            const progressBar = seriesReconciliationProgress.querySelector('.job-progress');
+            progressBar.classList.toggle('indeterminate', active && job.percent === null);
+            if (job.percent !== null) progressBar.querySelector('span').style.width = `${job.percent}%`;
+        }
+
+        async function pollSeriesReconciliationJob() {
+            let nextDelay = 5000;
+            try {
+                const response = await fetch('/api/jobs/series-reconciliation/status');
+                if (!response.ok) throw new Error(`Reconciliation status failed (${response.status})`);
+                const data = await response.json();
+                renderSeriesReconciliationJob(data.job);
+                if (data.active) nextDelay = 1000;
+                const terminal = data.job && (data.job.state === 'succeeded' || data.job.state === 'failed');
+                if (terminal && data.job.id === lastSeriesReconciliationJobId) {
+                    sessionStorage.removeItem('bookpilotSeriesReconciliationJobId');
+                    lastSeriesReconciliationJobId = '';
+                    if (data.job.state === 'succeeded') {
+                        delete document.getElementById('seriesReviewContent').dataset.loaded;
+                        await loadSeriesReview();
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading series reconciliation job:', error);
+            } finally {
+                window.setTimeout(pollSeriesReconciliationJob, nextDelay);
+            }
+        }
+
+        runSeriesReconciliationButton.addEventListener('click', () => startSeriesReconciliation(true));
+
+        const runSeriesEnrichmentButton = document.getElementById('runSeriesEnrichment');
+        const seriesEnrichmentSummary = document.getElementById('seriesEnrichmentSummary');
+        const seriesEnrichmentProgress = document.getElementById('seriesEnrichmentProgress');
+        const seriesEnrichmentProgressText = document.getElementById('seriesEnrichmentProgressText');
+        const seriesEnrichmentProgressDetail = document.getElementById('seriesEnrichmentProgressDetail');
+        let lastSeriesEnrichmentJobId = sessionStorage.getItem('bookpilotSeriesEnrichmentJobId') || '';
+
+        function readableDuration(seconds) {
+            const value = Math.max(0, Number(seconds) || 0);
+            if (value < 60) return `${Math.max(1, Math.round(value))} sec`;
+            const minutes = Math.ceil(value / 60);
+            return `${minutes} min`;
+        }
+
+        function renderSeriesEnrichmentStatus(status, configured) {
+            const complete = status.candidate_authors > 0 && status.fresh_authors === status.candidate_authors;
+            const needsCacheUpgrade = !complete && status.stale_authors > 0 && status.missing_authors === 0;
+            runSeriesEnrichmentButton.dataset.forceRefresh = complete ? 'true' : 'false';
+            runSeriesEnrichmentButton.dataset.catalogMode = complete ? 'refresh' : needsCacheUpgrade ? 'update' : 'build';
+            runSeriesEnrichmentButton.textContent = complete
+                ? 'Refresh Hardcover catalog'
+                : needsCacheUpgrade ? 'Update Hardcover catalog' : 'Build full series catalog';
+            runSeriesEnrichmentButton.disabled = !configured;
+            if (!configured) {
+                seriesEnrichmentSummary.innerHTML = 'Set <code>HARDCOVER_API_TOKEN</code> to enrich these series.';
+                return;
+            }
+            if (!status.candidate_authors) {
+                seriesEnrichmentSummary.textContent = 'No partial or not-started series currently need enrichment.';
+                return;
+            }
+            const firstBuild = status.missing_authors > 0;
+            const nextCalls = firstBuild ? status.build_api_calls : status.refresh_api_calls;
+            const nextSeconds = firstBuild ? status.build_estimated_seconds : status.refresh_estimated_seconds;
+            seriesEnrichmentSummary.innerHTML = complete
+                ? `<strong>${status.fresh_authors} of ${status.candidate_authors} authors cached.</strong> The cache is kept for ${status.cache_days} days. A full refresh normally uses ${nextCalls} Hardcover calls and takes about ${readableDuration(nextSeconds)}.`
+                : needsCacheUpgrade
+                ? `<strong>Your ${status.stale_authors}-author cache needs the new language and duplicate cleanup.</strong> Updating it will use about ${status.build_api_calls} Hardcover calls and take about ${readableDuration(status.build_estimated_seconds)}. The refreshed cache will then last ${status.cache_days} days.`
+                : `<strong>${status.fresh_authors} of ${status.candidate_authors} authors cached</strong> for ${status.candidate_series} visible series. The first catalog build may use ${status.build_api_calls} Hardcover calls and take about ${readableDuration(status.build_estimated_seconds)}. Future refreshes normally use one call per resolved author and the cache lasts ${status.cache_days} days.`;
+        }
+
+        async function startSeriesEnrichment() {
+            const forceRefresh = runSeriesEnrichmentButton.dataset.forceRefresh === 'true';
+            runSeriesEnrichmentButton.disabled = true;
+            seriesEnrichmentProgress.hidden = false;
+            const catalogMode = runSeriesEnrichmentButton.dataset.catalogMode;
+            seriesEnrichmentProgressText.textContent = catalogMode === 'refresh'
+                ? 'Starting full Hardcover refresh…'
+                : catalogMode === 'update'
+                ? 'Updating Hardcover catalog with language and duplicate cleanup…'
+                : 'Starting first-time Hardcover catalog build…';
+            seriesEnrichmentProgressDetail.textContent = 'The page can remain open while this runs.';
+            try {
+                const response = await fetch('/api/jobs/series-enrichment', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({force_refresh: forceRefresh}),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'Unable to start series enrichment.');
+                lastSeriesEnrichmentJobId = data.job.id;
+                sessionStorage.setItem('bookpilotSeriesEnrichmentJobId', data.job.id);
+                renderSeriesEnrichmentJob(data.job);
+            } catch (error) {
+                runSeriesEnrichmentButton.disabled = false;
+                seriesEnrichmentProgressText.textContent = error.message;
+            }
+        }
+
+        function renderSeriesEnrichmentJob(job) {
+            const active = job && (job.state === 'queued' || job.state === 'running');
+            if (active) runSeriesEnrichmentButton.disabled = true;
+            seriesEnrichmentProgress.hidden = !active && !(job && job.state === 'failed');
+            if (!job) return;
+            seriesEnrichmentProgressText.textContent = job.state === 'failed'
+                ? `Series enrichment failed — ${job.error || 'unknown error'}`
+                : job.message;
+            const calls = job.api_calls_total === undefined
+                ? ''
+                : `${job.api_calls_completed || 0} of ${job.api_calls_total} API calls`;
+            const eta = active && job.eta_seconds !== undefined
+                ? ` · about ${readableDuration(job.eta_seconds)} remaining`
+                : '';
+            seriesEnrichmentProgressDetail.textContent = `${calls}${eta}`.replace(/^ · /, '');
+            const bar = seriesEnrichmentProgress.querySelector('.job-progress');
+            bar.classList.toggle('indeterminate', active && job.percent === null);
+            if (job.percent !== null) bar.querySelector('span').style.width = `${job.percent}%`;
+        }
+
+        async function pollSeriesEnrichmentJob() {
+            let nextDelay = 5000;
+            try {
+                const response = await fetch('/api/jobs/series-enrichment/status');
+                if (!response.ok) throw new Error(`Series enrichment status failed (${response.status})`);
+                const data = await response.json();
+                renderSeriesEnrichmentJob(data.job);
+                if (data.active) nextDelay = 1000;
+                const terminal = data.job && (data.job.state === 'succeeded' || data.job.state === 'failed');
+                if (terminal && data.job.id === lastSeriesEnrichmentJobId) {
+                    sessionStorage.removeItem('bookpilotSeriesEnrichmentJobId');
+                    lastSeriesEnrichmentJobId = '';
+                    if (data.job.state === 'succeeded') {
+                        delete document.getElementById('seriesContent').dataset.loaded;
+                        await loadSeries();
+                    } else {
+                        runSeriesEnrichmentButton.disabled = false;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading series enrichment job:', error);
+            } finally {
+                window.setTimeout(pollSeriesEnrichmentJob, nextDelay);
+            }
+        }
+
+        runSeriesEnrichmentButton.addEventListener('click', startSeriesEnrichment);
+
+        function readingProgressBookHTML(series, book, status) {
+            const isRead = status === 'read';
+            const isActionable = status === 'unread';
+            const hardcoverOnlyActions = `
+                <span class="reading-progress-actions hardcover-only-actions">
+                    <button class="action-btn thumbs-up-btn" data-action="thumbs-up" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}" title="Save to recommendations">Save</button>
+                    <button class="action-btn duplicate-btn" data-action="duplicate" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}"
+                        data-hardcover-series-id="${escapeHtml(series.enrichment?.hardcover_series_id || '')}" data-hardcover-book-id="${escapeHtml(book.hardcover_book_id || '')}"
+                        data-series-position="${escapeHtml(book.position ?? '')}" title="Hide only this duplicate Hardcover record">Duplicate</button>
+                    <button class="action-btn non-english-btn" data-action="non-english" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}"
+                        data-hardcover-series-id="${escapeHtml(series.enrichment?.hardcover_series_id || '')}" data-hardcover-book-id="${escapeHtml(book.hardcover_book_id || '')}"
+                        data-series-position="${escapeHtml(book.position ?? '')}" title="Hide only this non-English Hardcover record">Not English</button>
+                    <button class="action-btn already-read-btn" data-action="already-read" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}" title="Already read">Mark read</button>
+                </span>`;
+            return `
+                <div class="book-item official-series-book reading-progress-book" data-status="${status}"
+                     data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}"
+                     data-search="${escapeHtml(`${series.author} ${series.series_name} ${book.title}`.toLocaleLowerCase())}">
+                    <span class="official-series-position">${book.position !== null && book.position !== undefined ? `#${escapeHtml(book.position)}` : '—'}</span>
+                    <span class="official-series-title">${escapeHtml(book.title)}</span>
+                    <span class="official-series-status">
+                        ${isRead ? '<span class="official-status-badge read">Already read</span>' : isActionable ? `
+                            <span class="reading-progress-actions">
+                                <button class="action-btn thumbs-up-btn" data-action="thumbs-up" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}" title="Save">Save</button>
+                                <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}" title="Remove this local BookPilot recommendation">Pass</button>
+                                <button class="action-btn duplicate-btn" data-action="duplicate" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}" title="Flag the local BookPilot recommendation as duplicate">Duplicate</button>
+                                <button class="action-btn already-read-btn" data-action="already-read" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(series.author)}" title="Already Read">Mark read</button>
+                            </span>` : hardcoverOnlyActions}
+                    </span>
+                </div>`;
+        }
+
+        // Build a series using the same ordered-row language as reconciliation.
+        function buildSeriesItemHTML(series, className) {
+            const localBooks = [
+                ...(series.read_books || []).map(book => ({...book, progressStatus: 'read'})),
+                ...(series.unread_books || []).map(book => ({...book, progressStatus: 'unread'})),
+            ];
+            const books = (series.series_books || localBooks).map(book => ({
+                ...book,
+                progressStatus: book.progressStatus || book.status || 'other',
+            })).sort((left, right) => {
+                const leftPosition = left.position === null || left.position === undefined ? NaN : Number(left.position);
+                const rightPosition = right.position === null || right.position === undefined ? NaN : Number(right.position);
+                if (Number.isFinite(leftPosition) && Number.isFinite(rightPosition)) return leftPosition - rightPosition;
+                if (Number.isFinite(leftPosition)) return -1;
+                if (Number.isFinite(rightPosition)) return 1;
+                return left.title.localeCompare(right.title);
+            });
+            return `
+                <details class="series-item official-series-group reading-progress-series ${className}" open>
+                    <summary>
+                        <span>${escapeHtml(series.series_name)}</span>
+                        <span class="official-series-actions">
+                            ${series.enrichment?.status === 'matched' ? `<a class="official-series-source" href="${escapeHtml(series.enrichment.source_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Hardcover data ↗</a>` : ''}
+                            ${series.enrichment?.status === 'matched' ? '<span class="official-status-badge">Hardcover enriched</span>' : ''}
+                            <span class="official-status-badge ${series.books_read ? 'read' : 'other'}">${series.books_read} of ${series.total_books} read</span>
+                            <button class="official-ignore-series progress-ignore-series" type="button"
+                                data-series="${escapeHtml(series.series_name)}" data-author="${escapeHtml(series.author)}"
+                                onclick="event.preventDefault();">Ignore for now</button>
+                        </span>
+                    </summary>
+                    <span class="series-meta sr-only">Read: ${series.books_read}/${series.total_books}</span>
+                    ${books.map(book => readingProgressBookHTML(series, book, book.progressStatus)).join('')}
+                </details>
             `;
         }
         
@@ -2056,20 +3170,80 @@ a:focus-visible {
                         sortedAuthors.forEach(author => {
                             const authorSeries = byAuthor[author];
                             authorGroupsHTML += `
-                                <div class="series-author-group">
-                                    <div class="series-author-header" onclick="toggleSeriesAuthorGroup(this)">
-                                        <strong>${author} (${authorSeries.length} series${authorSeries.length !== 1 ? '' : ''})</strong>
-                                        <span class="series-author-toggle">▼</span>
+                                <section class="official-author-review series-author-group reading-progress-author">
+                                    <div class="official-author-heading series-author-header" onclick="toggleSeriesAuthorGroup(this)">
+                                        <h3>${escapeHtml(author)}</h3>
+                                        <span>${authorSeries.length} series · click to collapse <span class="series-author-toggle">▼</span></span>
                                     </div>
                                     <div class="series-author-content">
                             `;
                             authorSeries.forEach(series => {
                                 authorGroupsHTML += buildSeriesItemHTML(series, sectionType);
                             });
-                            authorGroupsHTML += `</div></div>`;
+                            authorGroupsHTML += `</div></section>`;
                         });
                         
             return authorGroupsHTML;
+        }
+
+        async function updateProgressIgnoredSeries(action, series) {
+            try {
+                const response = await fetch('/api/series/ignored', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action, ...series}),
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) throw new Error(result.error || 'Unable to update ignored series.');
+                delete document.getElementById('seriesContent').dataset.loaded;
+                loadSeries();
+                return true;
+            } catch (error) {
+                const content = document.getElementById('seriesContent');
+                content.insertAdjacentHTML('afterbegin', `<div class="error">${escapeHtml(error.message)}</div>`);
+                return false;
+            }
+        }
+
+        async function updateHardcoverSeriesBook(button, action) {
+            const row = button.closest('.book-item');
+            const reconciliationRow = button.closest('.official-series-book');
+            const isReconciliation = Boolean(button.closest('#seriesReviewContent'));
+            button.disabled = true;
+            try {
+                const response = await fetch('/api/series/hardcover-book-action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action,
+                        title: button.dataset.title,
+                        author: button.dataset.author,
+                        series_id: button.dataset.hardcoverSeriesId,
+                        book_id: button.dataset.hardcoverBookId,
+                        position: button.dataset.seriesPosition,
+                    }),
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || !result.success) {
+                    throw new Error(result.error || 'Unable to hide this Hardcover record.');
+                }
+                if (row) row.classList.add('removing');
+                if (reconciliationRow) reconciliationRow.classList.add('removing');
+                window.setTimeout(() => {
+                    if (row) row.remove();
+                    if (reconciliationRow) reconciliationRow.remove();
+                    if (!isReconciliation) {
+                        delete document.getElementById('seriesContent').dataset.loaded;
+                        loadSeries();
+                    }
+                }, 300);
+                return true;
+            } catch (error) {
+                button.disabled = false;
+                const content = document.getElementById('seriesContent');
+                content.insertAdjacentHTML('afterbegin', `<div class="error">${escapeHtml(error.message)}</div>`);
+                return false;
+            }
         }
         
         // Load series analysis
@@ -2081,6 +3255,7 @@ a:focus-visible {
                     content.innerHTML = '';
                     content.dataset.loaded = 'true';
                     content.classList.remove('loading');
+                    renderSeriesEnrichmentStatus(data.enrichment || {}, data.hardcover_configured);
                     
                     // Summary with collapse/expand buttons on same row
                     const summary = document.createElement('div');
@@ -2126,9 +3301,32 @@ a:focus-visible {
                     buttonContainer.appendChild(expandAllBtn);
                     summary.appendChild(buttonContainer);
                     content.appendChild(summary);
+                    if ((data.ignored_series || []).length) {
+                        content.insertAdjacentHTML('beforeend', `
+                            <details class="ignored-series-manager">
+                                <summary>Ignored series (${data.ignored_series.length})</summary>
+                                ${data.ignored_series.map(series => `
+                                    <div class="ignored-series-row">
+                                        <span>${escapeHtml(series.name)} · ${escapeHtml(series.author)}</span>
+                                        <button class="official-restore-series progress-restore-series" type="button"
+                                            data-series="${escapeHtml(series.name)}" data-author="${escapeHtml(series.author)}">Restore</button>
+                                    </div>`).join('')}
+                            </details>`);
+                    }
                     
                     // Use event delegation on the content container for all button clicks
-                    content.addEventListener('click', (e) => {
+                    content.onclick = async (e) => {
+                        const ignoreButton = e.target.closest('.progress-ignore-series, .progress-restore-series');
+                        if (ignoreButton) {
+                            const action = ignoreButton.classList.contains('progress-restore-series') ? 'restore' : 'ignore';
+                            ignoreButton.disabled = true;
+                            ignoreButton.textContent = action === 'ignore' ? 'Ignoring…' : 'Restoring…';
+                            await updateProgressIgnoredSeries(action, {
+                                name: ignoreButton.dataset.series,
+                                author: ignoreButton.dataset.author,
+                            });
+                            return;
+                        }
                         const btn = e.target.closest('[data-action]');
                         if (!btn) return;
                         
@@ -2144,8 +3342,16 @@ a:focus-visible {
                             handleThumbsDown('ebook', title, author);
                         } else if (action === 'already-read') {
                             handleAlreadyRead('ebook', title, author);
+                        } else if (action === 'duplicate' && btn.dataset.hardcoverBookId) {
+                            updateHardcoverSeriesBook(btn, 'duplicate');
+                        } else if (action === 'duplicate') {
+                            handleDuplicate('ebook', title, author);
+                        } else if (action === 'non-english' && btn.dataset.hardcoverBookId) {
+                            updateHardcoverSeriesBook(btn, 'non_english');
+                        } else if (action === 'non-english') {
+                            handleNonEnglish('ebook', title, author);
                         }
-                    });
+                    };
                     
                     // Build HTML in batches for better performance
                     let html = '';
@@ -2204,14 +3410,14 @@ a:focus-visible {
                         toolbar: summary,
                         label: 'Filter series',
                         placeholder: 'Filter series or authors…',
-                        itemSelector: '.series-item',
+                        itemSelector: '.reading-progress-series',
                         groupSelector: '.series-author-group'
                     });
                 })
                 .catch(err => {
                     document.getElementById('seriesContent').classList.remove('loading');
                     document.getElementById('seriesContent').innerHTML = 
-                        `<div class="error">Error loading series: ${err.message}</div>`;
+                        `<div class="error">Error loading series: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
@@ -2272,7 +3478,7 @@ a:focus-visible {
                     container.appendChild(viewToggle);
                     
                     container.collapseExpandContainer = collapseExpandContainer;
-                    container.dataset.recommendations = JSON.stringify(data);
+                    container.recommendationData = data;
                     container.dataset.currentView = 'ranked';
                     container.dataset.sortType = 'match';
                     
@@ -2290,7 +3496,7 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('audiobookContent').classList.remove('loading');
                     document.getElementById('audiobookContent').innerHTML = 
-                        `<div class="error">Error loading recommendations: ${err.message}</div>`;
+                        `<div class="error">Error loading recommendations: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
@@ -2335,9 +3541,9 @@ a:focus-visible {
                     sortControls.className = 'sort-controls';
                     sortControls.innerHTML = `
                         <span class="sort-label">Sort:</span>
-                        <button class="sort-btn active" data-sort="match" onclick="sortRecommendations('ebook', 'match', this)">Score High–Low</button>
+                        <button class="sort-btn" data-sort="match" onclick="sortRecommendations('ebook', 'match', this)">Score High–Low</button>
                         <button class="sort-btn" data-sort="score-asc" onclick="sortRecommendations('ebook', 'score-asc', this)">Score Low–High</button>
-                        <button class="sort-btn" data-sort="count" onclick="sortRecommendations('ebook', 'count', this)">Author Count</button>
+                        <button class="sort-btn active" data-sort="count" onclick="sortRecommendations('ebook', 'count', this)">Author Count</button>
                         <button class="sort-btn" data-sort="alpha" onclick="sortRecommendations('ebook', 'alpha', this)">Author A–Z</button>
                     `;
                     
@@ -2349,11 +3555,13 @@ a:focus-visible {
                     container.appendChild(viewToggle);
                     
                     container.collapseExpandContainer = collapseExpandContainer;
-                    container.dataset.recommendations = JSON.stringify(data);
-                    container.dataset.currentView = 'ranked';
-                    container.dataset.sortType = 'match';
+                    container.recommendationData = data;
+                    container.dataset.currentView = 'author';
+                    container.dataset.sortType = 'count';
                     
-                    renderRankedView(container, data, 'ebook', false);
+                    renderAuthorView(container, data, 'ebook');
+                    const scheduleRanking = window.requestIdleCallback || (callback => setTimeout(callback, 0));
+                    scheduleRanking(() => prepareRankedRecommendations(container, data));
                     
                     content.appendChild(container);
                     installContentFilter(content, {
@@ -2367,7 +3575,7 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('ebookContent').classList.remove('loading');
                     document.getElementById('ebookContent').innerHTML = 
-                        `<div class="error">Error loading recommendations: ${err.message}</div>`;
+                        `<div class="error">Error loading recommendations: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
@@ -2383,7 +3591,7 @@ a:focus-visible {
             headerContent.style.alignItems = 'center';
             headerContent.style.justifyContent = 'space-between';
             headerContent.style.width = '100%';
-            headerContent.innerHTML = `<h2 style="margin: 0;">${type}</h2>`;
+            headerContent.innerHTML = `<h2 style="margin: 0;">${escapeHtml(type)}</h2>`;
             header.appendChild(headerContent);
             section.appendChild(header);
             
@@ -2396,7 +3604,7 @@ a:focus-visible {
                 const categoryHeader = document.createElement('div');
                 categoryHeader.className = 'category-header';
                 categoryHeader.innerHTML = `
-                    <span>${category} (${recs.length})</span>
+                    <span>${escapeHtml(category)} (${recs.length})</span>
                     <span class="category-toggle">▼</span>
                 `;
                 
@@ -2525,7 +3733,8 @@ a:focus-visible {
             
             // Get current view
             const currentView = container.dataset.currentView || 'category';
-            const data = JSON.parse(container.dataset.recommendations);
+            const data = container.recommendationData;
+            if (!data) return;
             
             // Remove existing sections
             const existingSections = container.querySelectorAll('.fiction-nonfiction-section, .author-view-section, .ranked-view-section, .hidden-authors-section');
@@ -2548,6 +3757,33 @@ a:focus-visible {
         }
 
         const RANKED_BATCH_SIZE = 100;
+
+        function flattenRecommendations(data) {
+            if (Array.isArray(data?.recommendations)) return [...data.recommendations];
+            const recommendations = [];
+            if (data?.recommendations) {
+                Object.values(data.recommendations.Fiction || {}).forEach(recs => recommendations.push(...recs));
+                Object.values(data.recommendations['Non-Fiction'] || {}).forEach(recs => recommendations.push(...recs));
+            }
+            return recommendations;
+        }
+
+        function prepareRankedRecommendations(container, data) {
+            if (container.rankedHigh && container.rankedLow) return;
+            const high = flattenRecommendations(data);
+            const compare = (a, b) => {
+                const scoreA = a.match_score ?? Math.round((a.similarity_score || 0) * 100);
+                const scoreB = b.match_score ?? Math.round((b.similarity_score || 0) * 100);
+                return scoreB - scoreA || a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
+            };
+            high.sort(compare);
+            container.rankedHigh = high;
+            container.rankedLow = [...high].sort((a, b) => {
+                const scoreA = a.match_score ?? Math.round((a.similarity_score || 0) * 100);
+                const scoreB = b.match_score ?? Math.round((b.similarity_score || 0) * 100);
+                return scoreA - scoreB || a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
+            });
+        }
 
         function recommendationMatchesFilters(rec, query, matchMode) {
             const searchableText = [rec.title, rec.author, rec.series_name, rec.score_reason]
@@ -2608,20 +3844,8 @@ a:focus-visible {
         // at once. Filtering operates on the complete in-memory result set and
         // each view renders a bounded batch.
         function renderRankedView(container, data, formatType, ascending = false) {
-            const allRecs = [];
-            if (Array.isArray(data.recommendations)) {
-                allRecs.push(...data.recommendations);
-            } else if (data.recommendations) {
-                Object.values(data.recommendations.Fiction || {}).forEach(recs => allRecs.push(...recs));
-                Object.values(data.recommendations['Non-Fiction'] || {}).forEach(recs => allRecs.push(...recs));
-            }
-
-            allRecs.sort((a, b) => {
-                const scoreA = a.match_score ?? Math.round((a.similarity_score || 0) * 100);
-                const scoreB = b.match_score ?? Math.round((b.similarity_score || 0) * 100);
-                const scoreOrder = ascending ? scoreA - scoreB : scoreB - scoreA;
-                return scoreOrder || a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
-            });
+            prepareRankedRecommendations(container, data);
+            const allRecs = ascending ? container.rankedLow : container.rankedHigh;
 
             if (container.collapseExpandContainer) {
                 container.collapseExpandContainer.innerHTML = '';
@@ -2804,6 +4028,13 @@ a:focus-visible {
                         content.classList.remove('expanded');
                         content.classList.add('collapsed');
                         toggle.textContent = '▶';
+                    } else if (state.authors[authorName] === false) {
+                        if (typeof authContainer.renderRecommendations === 'function') {
+                            authContainer.renderRecommendations();
+                        }
+                        content.classList.remove('collapsed');
+                        content.classList.add('expanded');
+                        toggle.textContent = '▼';
                     }
                 }
             });
@@ -2883,42 +4114,37 @@ a:focus-visible {
             sortedAuthors.forEach(author => {
                 const authorContainer = document.createElement('div');
                 authorContainer.className = 'author-container';
+                authorContainer.authorRecommendations = byAuthor[author];
                 
                 const authorHeader = document.createElement('div');
                 authorHeader.className = 'author-header';
                 // Default to collapsed for ebook recommendations
                 const defaultCollapsed = formatType === 'ebook';
                 const toggleSymbol = defaultCollapsed ? '▶' : '▼';
-                authorHeader.innerHTML = `
-                    <span>${author} <span class="author-book-count">(${byAuthor[author].length} book${byAuthor[author].length !== 1 ? 's' : ''})</span></span>
-                    <div class="author-header-actions">
-                        <button class="hide-author-btn" onclick="event.stopPropagation(); handleHideAuthor('${author.replace(/'/g, "\\'")}', '${formatType}')" title="Hide this author">Hide</button>
-                        <span class="author-toggle">${toggleSymbol}</span>
-                    </div>
-                `;
+                const authorLabel = document.createElement('span');
+                authorLabel.textContent = author;
+                const authorCount = document.createElement('span');
+                authorCount.className = 'author-book-count';
+                authorCount.textContent = ` (${byAuthor[author].length} book${byAuthor[author].length !== 1 ? 's' : ''})`;
+                authorLabel.appendChild(authorCount);
+                const authorActions = document.createElement('div');
+                authorActions.className = 'author-header-actions';
+                const hideButton = document.createElement('button');
+                hideButton.className = 'hide-author-btn';
+                hideButton.title = 'Hide this author';
+                hideButton.textContent = 'Hide';
+                hideButton.onclick = event => {
+                    event.stopPropagation();
+                    handleHideAuthor(author, formatType);
+                };
+                const authorToggle = document.createElement('span');
+                authorToggle.className = 'author-toggle';
+                authorToggle.textContent = toggleSymbol;
+                authorActions.append(hideButton, authorToggle);
+                authorHeader.append(authorLabel, authorActions);
                 
                 const authorContent = document.createElement('div');
                 authorContent.className = defaultCollapsed ? 'author-content collapsed' : 'author-content expanded';
-                
-                authorHeader.onclick = () => {
-                    const isCollapsed = authorContent.classList.contains('collapsed');
-                    if (isCollapsed) {
-                        authorContent.classList.remove('collapsed');
-                        authorContent.classList.add('expanded');
-                        authorHeader.querySelector('.author-toggle').textContent = '▼';
-                    } else {
-                        authorContent.classList.remove('expanded');
-                        authorContent.classList.add('collapsed');
-                        authorHeader.querySelector('.author-toggle').textContent = '▶';
-                    }
-                    // Update stored state when manually toggled
-                    const recommendationsContainer = authorContainer.closest('.recommendations-container');
-                    if (recommendationsContainer) {
-                        getCollapseState(recommendationsContainer);
-                    }
-                };
-                
-                authorContainer.appendChild(authorHeader);
                 
                 // Group books by series and standalone
                 const seriesGroups = {};
@@ -2955,28 +4181,57 @@ a:focus-visible {
                 // Sort standalone books by similarity score
                 standaloneBooks.sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0));
                 
-                // Render series groups first (at the top)
-                sortedSeriesKeys.forEach(seriesKey => {
-                    const seriesBooks = seriesGroups[seriesKey];
-                    if (seriesBooks.length > 1) {
-                        // Only group if there are multiple books in the series
-                        const seriesHeader = document.createElement('div');
-                        seriesHeader.className = 'series-group-header';
-                        seriesHeader.textContent = `${seriesKey} (${seriesBooks.length} books)`;
-                        authorContent.appendChild(seriesHeader);
-                    }
-                    
-                    seriesBooks.forEach(rec => {
-                        const div = createRecommendationItem(rec, formatType);
-                        authorContent.appendChild(div);
+                const renderAuthorBooks = () => {
+                    if (authorContent.dataset.rendered === 'true') return;
+                    sortedSeriesKeys.forEach(seriesKey => {
+                        const seriesBooks = seriesGroups[seriesKey].filter(rec =>
+                            !container.suppressedRecommendationKeys?.has(
+                                recommendationIdentityKey(rec.title, rec.author)
+                            )
+                        );
+                        if (!seriesBooks.length) return;
+                        if (seriesBooks.length > 1) {
+                            const seriesHeader = document.createElement('div');
+                            seriesHeader.className = 'series-group-header';
+                            seriesHeader.textContent = `${seriesKey} (${seriesBooks.length} books)`;
+                            authorContent.appendChild(seriesHeader);
+                        }
+                        seriesBooks.forEach(rec => {
+                            authorContent.appendChild(createRecommendationItem(rec, formatType));
+                        });
                     });
-                });
-                
-                // Then render standalone books
-                standaloneBooks.forEach(rec => {
-                    const div = createRecommendationItem(rec, formatType);
-                    authorContent.appendChild(div);
-                });
+                    standaloneBooks
+                        .filter(rec => !container.suppressedRecommendationKeys?.has(
+                            recommendationIdentityKey(rec.title, rec.author)
+                        ))
+                        .forEach(rec => {
+                            authorContent.appendChild(createRecommendationItem(rec, formatType));
+                        });
+                    authorContent.dataset.rendered = 'true';
+                };
+                authorContainer.renderRecommendations = renderAuthorBooks;
+
+                authorHeader.onclick = () => {
+                    const isCollapsed = authorContent.classList.contains('collapsed');
+                    if (isCollapsed) {
+                        renderAuthorBooks();
+                        authorContent.classList.remove('collapsed');
+                        authorContent.classList.add('expanded');
+                        authorHeader.querySelector('.author-toggle').textContent = '▼';
+                        const filterInput = authorContainer.closest('.recommendations-container')
+                            ?.querySelector('.content-filter input');
+                        if (filterInput) filterInput.dispatchEvent(new Event('input'));
+                    } else {
+                        authorContent.classList.remove('expanded');
+                        authorContent.classList.add('collapsed');
+                        authorHeader.querySelector('.author-toggle').textContent = '▶';
+                    }
+                    const recommendationsContainer = authorContainer.closest('.recommendations-container');
+                    if (recommendationsContainer) getCollapseState(recommendationsContainer);
+                };
+
+                authorContainer.appendChild(authorHeader);
+                if (!defaultCollapsed) renderAuthorBooks();
                 
                 authorContainer.appendChild(authorContent);
                 authorSection.appendChild(authorContainer);
@@ -3012,10 +4267,15 @@ a:focus-visible {
                     
                     const hiddenAuthorHeader = document.createElement('div');
                     hiddenAuthorHeader.className = 'hidden-author-header';
-                    hiddenAuthorHeader.innerHTML = `
-                        <span class="hidden-author-name">${hiddenAuthor.name} <span class="author-book-count">(${hiddenAuthor.book_count} book${hiddenAuthor.book_count !== 1 ? 's' : ''})</span></span>
-                        <button class="unhide-author-btn" onclick="handleUnhideAuthor('${hiddenAuthor.name.replace(/'/g, "\\'")}', '${formatType}')" title="Unhide this author">Show</button>
-                    `;
+                    const hiddenName = document.createElement('span');
+                    hiddenName.className = 'hidden-author-name';
+                    hiddenName.textContent = `${hiddenAuthor.name} (${hiddenAuthor.book_count} book${hiddenAuthor.book_count !== 1 ? 's' : ''})`;
+                    const showButton = document.createElement('button');
+                    showButton.className = 'unhide-author-btn';
+                    showButton.title = 'Unhide this author';
+                    showButton.textContent = 'Show';
+                    showButton.onclick = () => handleUnhideAuthor(hiddenAuthor.name, formatType);
+                    hiddenAuthorHeader.append(hiddenName, showButton);
                     
                     hiddenAuthorContainer.appendChild(hiddenAuthorHeader);
                     
@@ -3057,7 +4317,8 @@ a:focus-visible {
             // Save current collapse state before removing sections
             getCollapseState(container);
             
-            const data = JSON.parse(container.dataset.recommendations);
+            const data = container.recommendationData;
+            if (!data) return;
             
             // Update button states
             container.querySelectorAll('.view-toggle-btn').forEach(btn => {
@@ -3106,12 +4367,12 @@ a:focus-visible {
             div.innerHTML = `
                 <div class="recommendation-header">
                     <div class="recommendation-title">
-                        ${rec.title} by ${rec.author}
+                        ${escapeHtml(rec.title)} by ${escapeHtml(rec.author)}
                     </div>
                 </div>
-                ${seriesDisplay ? `<div class="recommendation-series">${seriesDisplay}</div>` : ''}
-                <div class="match-badge ${rec.interest_tier || ''}" title="${rec.score_reason || ''}">${rec.interest_label || 'Possible match'} · ${rec.match_score ?? Math.round((rec.similarity_score || 0) * 100)}</div>
-                <div class="recommendation-author-count">You've read ${bookCount} book${bookCount !== 1 ? 's' : ''} by ${rec.author}</div>
+                ${seriesDisplay ? `<div class="recommendation-series">${escapeHtml(seriesDisplay)}</div>` : ''}
+                <div class="match-badge ${escapeHtml(rec.interest_tier || '')}" title="${escapeHtml(rec.score_reason || '')}">${escapeHtml(rec.interest_label || 'Possible match')} · ${escapeHtml(rec.match_score ?? Math.round((rec.similarity_score || 0) * 100))}</div>
+                <div class="recommendation-author-count">You've read ${escapeHtml(bookCount)} book${bookCount !== 1 ? 's' : ''} by ${escapeHtml(rec.author)}</div>
                 <div class="recommendation-actions">
                     <button class="action-btn thumbs-up-btn ${thumbsUpClass}" data-action="thumbs-up" title="Save" ${thumbsUpDisabled}>
                         Save
@@ -3225,6 +4486,9 @@ a:focus-visible {
                         authorContent.classList.add('collapsed');
                         toggle.textContent = '▶';
                     } else {
+                        if (typeof container.renderRecommendations === 'function') {
+                            container.renderRecommendations();
+                        }
                         authorContent.classList.remove('collapsed');
                         authorContent.classList.add('expanded');
                         toggle.textContent = '▼';
@@ -3359,11 +4623,82 @@ a:focus-visible {
                 toggle.textContent = '▶';
             }
         }
+
+        function recommendationIdentityKey(title, author) {
+            return `${String(title ?? '').trim().toLocaleLowerCase()}\u0000${String(author ?? '').trim().toLocaleLowerCase()}`;
+        }
+
+        function suppressRecommendationInClientState(formatType, title, author) {
+            const content = document.getElementById(`${formatType}Content`);
+            const container = content?.querySelector('.recommendations-container');
+            if (!container) return;
+
+            const identity = recommendationIdentityKey(title, author);
+            const matches = rec => recommendationIdentityKey(rec?.title, rec?.author) === identity;
+            const data = container.recommendationData;
+            let removedFromVisibleData = false;
+
+            if (Array.isArray(data?.recommendations)) {
+                const previousLength = data.recommendations.length;
+                data.recommendations = data.recommendations.filter(rec => !matches(rec));
+                removedFromVisibleData = data.recommendations.length !== previousLength;
+            } else if (data?.recommendations) {
+                Object.values(data.recommendations).forEach(categoryGroups => {
+                    Object.keys(categoryGroups || {}).forEach(category => {
+                        const previousLength = categoryGroups[category].length;
+                        categoryGroups[category] = categoryGroups[category].filter(rec => !matches(rec));
+                        removedFromVisibleData ||= categoryGroups[category].length !== previousLength;
+                    });
+                });
+            }
+
+            (data?.hidden_authors || []).forEach(hiddenAuthor => {
+                hiddenAuthor.recommendations = (hiddenAuthor.recommendations || []).filter(rec => !matches(rec));
+                hiddenAuthor.book_count = hiddenAuthor.recommendations.length;
+            });
+
+            if (removedFromVisibleData && Number.isFinite(data?.total)) {
+                data.total = Math.max(0, data.total - 1);
+                const tab = document.querySelector(`.tab[data-tab="${formatType}"]`);
+                if (tab) {
+                    tab.dataset.count = data.total;
+                    tab.setAttribute('aria-label', `${formatType === 'ebook' ? 'Ebooks' : 'Audiobooks'}, ${data.total} recommendations`);
+                }
+            }
+
+            // Lazy author groups retain their own list reference, while ranked
+            // views retain sorted caches. Update/invalidate both so a dismissed
+            // book cannot reappear after expanding, filtering, or re-sorting.
+            container.suppressedRecommendationKeys ||= new Set();
+            container.suppressedRecommendationKeys.add(identity);
+            container.querySelectorAll('.author-container').forEach(authorContainer => {
+                if (Array.isArray(authorContainer.authorRecommendations)) {
+                    authorContainer.authorRecommendations = authorContainer.authorRecommendations.filter(rec => !matches(rec));
+                }
+            });
+            if (Array.isArray(container.rankedRecommendations)) {
+                container.rankedRecommendations = container.rankedRecommendations.filter(rec => !matches(rec));
+            }
+            container.rankedHigh = null;
+            container.rankedLow = null;
+
+            const rankedSection = container.querySelector('.ranked-view-section');
+            if (rankedSection) {
+                const renderedMatches = rankedSection.querySelectorAll(
+                    `.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`
+                ).length;
+                rankedSection.dataset.renderedCount = String(Math.max(
+                    0,
+                    Number(rankedSection.dataset.renderedCount || 0) - renderedMatches
+                ));
+            }
+        }
         
         // Handle duplicate
         function handleDuplicate(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
+            const changedSeriesBook = Array.from(items).some(item => item.classList.contains('book-item'));
             
             // Show tap animation immediately
             items.forEach(item => {
@@ -3397,6 +4732,7 @@ a:focus-visible {
             .then(data => {
                 console.log('Duplicate flag response:', data);
                 if (data.success) {
+                    suppressRecommendationInClientState(formatType, title, author);
                     // Start fade out animation
                     items.forEach(item => {
                         item.classList.add('removing');
@@ -3405,33 +4741,20 @@ a:focus-visible {
                     // Remove from DOM after animation
                     setTimeout(() => {
                         items.forEach(item => item.remove());
+                        if (changedSeriesBook) {
+                            delete document.getElementById('seriesContent').dataset.loaded;
+                            loadSeries();
+                        }
                     }, 500);
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Re-enable buttons if API call failed
-                        buttons.forEach(btn => {
-                            btn.disabled = false;
-                            btn.classList.remove('selected');
-                        });
-                        console.error('Failed to flag duplicate:', data.error, data);
-                        alert(`Failed to save: ${data.error || 'Unknown error'}`);
-                    }
+                    // The server exhausted its retries, so nothing was saved.
+                    // Keep the item visible and let the user retry the action.
+                    buttons.forEach(btn => {
+                        btn.disabled = false;
+                        btn.classList.remove('selected');
+                    });
+                    console.error('Failed to flag duplicate:', data.error, data);
+                    alert(`Failed to save: ${data.error || 'Unknown error'}`);
                 }
             })
             .catch(error => {
@@ -3447,7 +4770,7 @@ a:focus-visible {
         
         // Handle recategorize
         function handleRecategorize(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             items.forEach(item => {
@@ -3505,7 +4828,7 @@ a:focus-visible {
         
         // Handle thumbs up
         function handleThumbsUp(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             items.forEach(item => {
                 const btn = item.querySelector('[data-action="thumbs-up"]');
@@ -3538,6 +4861,11 @@ a:focus-visible {
                             loadBooksToRead();
                         }, 100);
                     }
+                    const changedSeriesBook = Array.from(items).some(item => item.classList.contains('book-item'));
+                    if (changedSeriesBook) {
+                        delete document.getElementById('seriesContent').dataset.loaded;
+                        loadSeries();
+                    }
                 } else {
                     // Revert on error
                     buttons.forEach(btn => {
@@ -3558,7 +4886,7 @@ a:focus-visible {
         
         // Handle thumbs down
         function handleThumbsDown(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3583,44 +4911,15 @@ a:focus-visible {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    // Start fade out animation
-                    items.forEach(item => {
-                        // Check if this is a book-item in a series, and if removing it leaves no unread books
-                        // Do this BEFORE adding 'removing' class so we can count correctly
-                        let shouldFadeSeries = false;
-                        if (item.classList.contains('book-item')) {
-                            const seriesItem = item.closest('.series-item');
-                            if (seriesItem) {
-                                const bookList = seriesItem.querySelector('.book-list');
-                                if (bookList) {
-                                    // Count all book items in the list
-                                    const allBooks = bookList.querySelectorAll('.book-item');
-                                    // If this is the only book (or last book), fade out the entire series
-                                    if (allBooks.length === 1) {
-                                        shouldFadeSeries = true;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        item.classList.add('removing');
-                        
-                        // If this was the last book, fade out the series
-                        if (shouldFadeSeries) {
-                            const seriesItem = item.closest('.series-item');
-                            if (seriesItem) {
-                                setTimeout(() => {
-                                    seriesItem.classList.add('removing');
-                                    setTimeout(() => {
-                                        seriesItem.remove();
-                                    }, 500);
-                                }, 500); // Wait for book item to fade first
-                            }
-                        }
-                    });
-                    // Remove from DOM after animation
+                    suppressRecommendationInClientState(formatType, title, author);
+                    const changedSeriesBook = Array.from(items).some(item => item.classList.contains('book-item'));
+                    items.forEach(item => item.classList.add('removing'));
                     setTimeout(() => {
                         items.forEach(item => item.remove());
+                        if (changedSeriesBook) {
+                            delete document.getElementById('seriesContent').dataset.loaded;
+                            loadSeries();
+                        }
                     }, 500);
                     // Also reload books to read if that tab is active (to remove if it was there)
                     const booksToReadTab = document.getElementById('books-to-read');
@@ -3629,29 +4928,13 @@ a:focus-visible {
                         loadBooksToRead();
                     }
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Revert on other errors
-                        buttons.forEach(btn => {
-                            btn.classList.remove('selected');
-                            btn.disabled = false;
-                        });
-                    }
+                    // The failed action was not persisted. Leave the book in
+                    // place and restore the button so the user can retry.
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                    alert(data.error || 'Failed to save. Please try again.');
                 }
             })
             .catch(err => {
@@ -3666,7 +4949,7 @@ a:focus-visible {
         
         // Handle already read flag
         function handleAlreadyRead(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3691,41 +4974,21 @@ a:focus-visible {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    // Start fade out animation
+                    suppressRecommendationInClientState(formatType, title, author);
+                    const changedSeriesBook = Array.from(items).some(item => item.classList.contains('book-item'));
+                    // Recommendation cards disappear; Series Analysis reloads
+                    // so this same row remains visible with its green read state.
                     items.forEach(item => {
-                        item.classList.add('removing');
-                        
-                        // Check if this is a book-item in a series, and if marking it as read completes the series
-                        if (item.classList.contains('book-item')) {
-                            const seriesItem = item.closest('.series-item');
-                            if (seriesItem) {
-                                // Get the series meta to check completion status
-                                const seriesMeta = seriesItem.querySelector('.series-meta');
-                                if (seriesMeta) {
-                                    const metaText = seriesMeta.textContent;
-                                    // Parse "Read: X/Y" format
-                                    const match = metaText.match(/Read:\s*(\d+)\/(\d+)/);
-                                    if (match) {
-                                        const booksRead = parseInt(match[1]);
-                                        const totalBooks = parseInt(match[2]);
-                                        // If marking this book as read would complete the series (booksRead + 1 >= totalBooks)
-                                        if (booksRead + 1 >= totalBooks) {
-                                            // Fade out the entire series item after the book item fades
-                                            setTimeout(() => {
-                                                seriesItem.classList.add('removing');
-                                                setTimeout(() => {
-                                                    seriesItem.remove();
-                                                }, 500);
-                                            }, 500); // Wait for book item to fade first
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        if (!item.classList.contains('book-item')) item.classList.add('removing');
                     });
-                    // Remove from DOM after animation
                     setTimeout(() => {
-                        items.forEach(item => item.remove());
+                        items.forEach(item => {
+                            if (!item.classList.contains('book-item')) item.remove();
+                        });
+                        if (changedSeriesBook) {
+                            delete document.getElementById('seriesContent').dataset.loaded;
+                            loadSeries();
+                        }
                     }, 500);
                     // Also reload books to read if that tab is active (to remove if it was there)
                     const booksToReadTab = document.getElementById('books-to-read');
@@ -3734,29 +4997,13 @@ a:focus-visible {
                         loadBooksToRead();
                     }
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Revert on other errors
-                        buttons.forEach(btn => {
-                            btn.classList.remove('selected');
-                            btn.disabled = false;
-                        });
-                    }
+                    // The failed action was not persisted. Leave the book in
+                    // place and restore the button so the user can retry.
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                    alert(data.error || 'Failed to save. Please try again.');
                 }
             })
             .catch(err => {
@@ -3771,7 +5018,7 @@ a:focus-visible {
         
         // Handle non-English flag
         function handleNonEnglish(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3796,6 +5043,8 @@ a:focus-visible {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    suppressRecommendationInClientState(formatType, title, author);
+                    const changedSeriesBook = Array.from(items).some(item => item.classList.contains('book-item'));
                     // Start fade out animation
                     items.forEach(item => {
                         item.classList.add('removing');
@@ -3803,31 +5052,19 @@ a:focus-visible {
                     // Remove from DOM after animation
                     setTimeout(() => {
                         items.forEach(item => item.remove());
+                        if (changedSeriesBook) {
+                            delete document.getElementById('seriesContent').dataset.loaded;
+                            loadSeries();
+                        }
                     }, 500);
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Revert on other errors
-                        buttons.forEach(btn => {
-                            btn.classList.remove('selected');
-                            btn.disabled = false;
-                        });
-                    }
+                    // The failed action was not persisted. Leave the book in
+                    // place and restore the button so the user can retry.
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                    alert(data.error || 'Failed to save. Please try again.');
                 }
             })
             .catch(err => {
@@ -3870,7 +5107,7 @@ a:focus-visible {
                     }
                     
                     // Use event delegation on the content container for all button clicks
-                    content.addEventListener('click', (e) => {
+                    content.onclick = (e) => {
                         const btn = e.target.closest('[data-action]');
                         if (!btn) return;
                         
@@ -3891,7 +5128,7 @@ a:focus-visible {
                         } else if (action === 'already-read') {
                             handleAlreadyRead(formatType, title, author);
                         }
-                    });
+                    };
                     
                     Object.entries(data.books).forEach(([author, books]) => {
                         const authorSection = document.createElement('div');
@@ -3911,20 +5148,20 @@ a:focus-visible {
                             div.innerHTML = `
                                 <div class="recommendation-header">
                                     <div class="recommendation-title">
-                                        ${book.title}
-                                        <span class="score">${book.format}</span>
+                                        ${escapeHtml(book.title)}
+                                        <span class="score">${escapeHtml(book.format)}</span>
                                     </div>
                                 </div>
-                                ${book.category ? `<div class="recommendation-meta">${book.category}</div>` : ''}
-                                ${book.reason ? `<div class="recommendation-meta">${book.reason}</div>` : ''}
+                                ${book.category ? `<div class="recommendation-meta">${escapeHtml(book.category)}</div>` : ''}
+                                ${book.reason ? `<div class="recommendation-meta">${escapeHtml(book.reason)}</div>` : ''}
                                 <div class="recommendation-actions">
-                                    <button class="action-btn thumbs-up-btn selected" data-action="thumbs-up" data-title="${book.title}" data-author="${book.author}" title="Save" disabled>
+                                    <button class="action-btn thumbs-up-btn selected" data-action="thumbs-up" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(book.author)}" title="Save" disabled>
                                         Save
                                     </button>
-                                    <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${book.title}" data-author="${book.author}" title="Pass">
+                                    <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(book.author)}" title="Pass">
                                         Pass
                                     </button>
-                                    <button class="action-btn already-read-btn" data-action="already-read" data-title="${book.title}" data-author="${book.author}" title="Already Read">
+                                    <button class="action-btn already-read-btn" data-action="already-read" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(book.author)}" title="Already Read">
                                         already read
                                     </button>
                                 </div>
@@ -3949,12 +5186,14 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('booksToReadContent').classList.remove('loading');
                     document.getElementById('booksToReadContent').innerHTML = 
-                        `<div class="error">Error loading books: ${err.message}</div>`;
+                        `<div class="error">Error loading books: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
-        // Load series on page load
-        loadSeries();
+        // Restore the selected Series sub-view and load only that view.
+        showSeriesView(localStorage.getItem('bookpilotSeriesView') || 'progress', {remember: false});
+        pollSeriesReconciliationJob();
+        pollSeriesEnrichmentJob();
     </script>
 </body>
 </html>

@@ -88,6 +88,7 @@ class JobManager:
             message: Optional[str] = None,
             current: Optional[int] = None,
             total: Optional[int] = None,
+            **details: Any,
         ) -> None:
             changes: Dict[str, Any] = {}
             if message is not None:
@@ -96,6 +97,7 @@ class JobManager:
                 changes["current"] = max(0, int(current))
             if total is not None:
                 changes["total"] = max(0, int(total))
+            changes.update(details)
             self._update(job_id, **changes)
 
         try:

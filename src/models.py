@@ -234,6 +234,130 @@ def migrate_database(engine):
                                         print("  Database may be locked by another process. Please wait and try again.")
                     except Exception as e:
                         print(f"  Warning: Migration error for {col_name}: {e}")
+
+        # Add the indexes used by the interactive views and catalog refreshes.
+        # The recommendation identity index also closes the race where repeated
+        # UI handlers could insert the same feedback row concurrently.
+        if {'books', 'authors', 'author_catalog_books', 'recommendations'}.issubset(inspector.get_table_names()):
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            try:
+                cursor = conn.cursor()
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_books_author ON books(author)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_books_isbn ON books(isbn)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_authors_normalized_name ON authors(normalized_name)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_catalog_author ON author_catalog_books(author_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_catalog_work ON author_catalog_books(open_library_key)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_catalog_isbn ON author_catalog_books(isbn)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS ix_recommendations_format ON recommendations(format)")
+                cursor.execute("UPDATE recommendations SET title = trim(title), author = trim(author)")
+                cursor.execute("""
+                    UPDATE recommendations AS kept
+                    SET title = trim(kept.title),
+                        author = trim(kept.author),
+                        thumbs_up = (SELECT dupe.thumbs_up FROM recommendations dupe
+                                     WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                       AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                       AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                       AND (dupe.thumbs_up IS NOT NULL OR dupe.thumbs_down IS NOT NULL)
+                                     ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC, dupe.id DESC LIMIT 1),
+                        thumbs_down = (SELECT dupe.thumbs_down FROM recommendations dupe
+                                       WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                         AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                         AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                         AND (dupe.thumbs_up IS NOT NULL OR dupe.thumbs_down IS NOT NULL)
+                                       ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC, dupe.id DESC LIMIT 1),
+                        non_english = (SELECT MAX(COALESCE(dupe.non_english, 0)) FROM recommendations dupe
+                                       WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                         AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                         AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')),
+                        already_read = (SELECT MAX(COALESCE(dupe.already_read, 0)) FROM recommendations dupe
+                                        WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                          AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                          AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')),
+                        duplicate = (SELECT MAX(COALESCE(dupe.duplicate, 0)) FROM recommendations dupe
+                                     WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                       AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                       AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')),
+                        language_flag_source = (SELECT dupe.language_flag_source FROM recommendations dupe
+                                                WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                                  AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                                  AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                                  AND NULLIF(trim(dupe.language_flag_source), '') IS NOT NULL
+                                                ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                                         dupe.id DESC LIMIT 1),
+                        book_id = (SELECT dupe.book_id FROM recommendations dupe
+                                   WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                     AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                     AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                     AND dupe.book_id IS NOT NULL
+                                   ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                            dupe.id DESC LIMIT 1),
+                        catalog_book_id = (SELECT dupe.catalog_book_id FROM recommendations dupe
+                                           WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                             AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                             AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                             AND dupe.catalog_book_id IS NOT NULL
+                                           ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                                    dupe.id DESC LIMIT 1),
+                        isbn = (SELECT dupe.isbn FROM recommendations dupe
+                                WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                  AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                  AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                  AND NULLIF(trim(dupe.isbn), '') IS NOT NULL
+                                ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                         dupe.id DESC LIMIT 1),
+                        category = (SELECT dupe.category FROM recommendations dupe
+                                    WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                      AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                      AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                      AND NULLIF(trim(dupe.category), '') IS NOT NULL
+                                    ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                             dupe.id DESC LIMIT 1),
+                        recommendation_type = (SELECT dupe.recommendation_type FROM recommendations dupe
+                                               WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                                 AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                                 AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                                 AND NULLIF(trim(dupe.recommendation_type), '') IS NOT NULL
+                                               ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                                        dupe.id DESC LIMIT 1),
+                        similarity_score = (SELECT dupe.similarity_score FROM recommendations dupe
+                                            WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                              AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                              AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                              AND dupe.similarity_score IS NOT NULL
+                                            ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                                     dupe.id DESC LIMIT 1),
+                        reason = (SELECT dupe.reason FROM recommendations dupe
+                                  WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                    AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                    AND COALESCE(dupe.format, '') = COALESCE(kept.format, '')
+                                    AND NULLIF(trim(dupe.reason), '') IS NOT NULL
+                                  ORDER BY COALESCE(dupe.feedback_date, dupe.created_at) DESC,
+                                           dupe.id DESC LIMIT 1),
+                        feedback_date = (SELECT MAX(dupe.feedback_date) FROM recommendations dupe
+                                         WHERE lower(trim(dupe.title)) = lower(trim(kept.title))
+                                           AND lower(trim(dupe.author)) = lower(trim(kept.author))
+                                           AND COALESCE(dupe.format, '') = COALESCE(kept.format, ''))
+                    WHERE kept.id IN (
+                        SELECT MIN(id) FROM recommendations
+                        GROUP BY lower(trim(title)), lower(trim(author)), COALESCE(format, '')
+                        HAVING COUNT(*) > 1
+                    )
+                """)
+                cursor.execute("""
+                    DELETE FROM recommendations
+                    WHERE id NOT IN (
+                        SELECT MIN(id) FROM recommendations
+                        GROUP BY lower(trim(title)), lower(trim(author)), COALESCE(format, '')
+                    )
+                """)
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS ux_recommendation_identity
+                    ON recommendations(lower(trim(title)), lower(trim(author)), COALESCE(format, ''))
+                """)
+                conn.commit()
+            finally:
+                conn.close()
     except Exception as e:
         # Migration failed, but don't crash - the app can still work
         print(f"Warning: Database migration check failed: {e}")
