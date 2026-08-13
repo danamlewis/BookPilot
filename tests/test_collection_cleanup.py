@@ -25,11 +25,38 @@ class CollectionCleanupTests(unittest.TestCase):
             "The Series Books 1-4",
             "The Series: Books 2 – 6",
             "Books 1 to 3 Collection",
+            "The Harbor Daughter [Large Print]",
+            "A Novel (large print edition)",
+            "Select Editions Large Type",
+            "A Novel on Audio CD",
+            "A Novel Book/CD",
+            "A Novel on 2 CDs",
+            "Reference CD-ROM Version",
+            "A Novel [sound recording]",
+            "Rango Audio Pack",
+            "A Mystery Denied (Audio)",
+            "Pearl [Unabridged]",
+            "Harbor Castle - Unabridged",
+            "A Novel [Hardcover]",
+            "A Novel in Hardback",
+            "A Novel [Paperback]",
+            "A Novel - Mass Market",
+            "A Novel (Library Binding Edition)",
+            "Two Editions in Slipcase",
         ):
             self.assertIsNotNone(collection_title_reason(title), title)
 
     def test_does_not_match_ordinary_titles(self):
-        for title in ("The Box", "Book 4", "Activity Book 8-10", "Books and Libraries"):
+        for title in (
+            "The Box",
+            "Book 4",
+            "Activity Book 8-10",
+            "Books and Libraries",
+            "Acid Test",
+            "cd Player Stories",
+            "An Unabridged History of the World",
+            "Record Set Right",
+        ):
             self.assertIsNone(collection_title_reason(title), title)
 
     def test_removes_catalog_and_saved_recommendations(self):

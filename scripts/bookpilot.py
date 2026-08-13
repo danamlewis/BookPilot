@@ -113,19 +113,6 @@ def cmd_catalog(args):
                                        recent_years=args.recent_years,
                                        auto_cleanup=args.auto_cleanup)
     
-    # Update system metadata: last catalog check date
-    metadata = session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
-    if metadata:
-        metadata.value = datetime.utcnow().isoformat()
-        metadata.updated_at = datetime.utcnow()
-    else:
-        metadata = SystemMetadata(
-            key='last_catalog_check',
-            value=datetime.utcnow().isoformat()
-        )
-        session.add(metadata)
-    session.commit()
-    
     if result.get('stopped_early'):
         print(f"\n⚠️  Catalog fetch stopped early due to errors!")
         print(f"  Total authors: {result['total_authors']}")
@@ -170,8 +157,8 @@ def cmd_catalog(args):
             removed_duplicates = dedupe_result.get('catalog_duplicates_removed', 0)
             print(f"  Removed {removed_duplicates} duplicate catalog books\n")
 
-            # 3. Remove box sets, bundles, and numbered book ranges.
-            print("Step 3: Removing multi-book packages...")
+            # 3. Remove packages and unwanted physical-edition listings.
+            print("Step 3: Removing excluded packages and editions...")
             collection_result = cleanup_collection_titles(session)
             print(
                 f"  Removed {collection_result['catalog_removed']} catalog books and "
@@ -192,8 +179,8 @@ def cmd_catalog(args):
             print(f"✓ Cleanup complete!")
             print(f"  Non-English books removed: {removed_non_english}")
             print(f"  Duplicates removed: {removed_duplicates}")
-            print(f"  Multi-book catalog entries removed: {collection_result['catalog_removed']}")
-            print(f"  Multi-book recommendations removed: {collection_result['recommendations_removed']}")
+            print(f"  Excluded catalog entries removed: {collection_result['catalog_removed']}")
+            print(f"  Excluded recommendations removed: {collection_result['recommendations_removed']}")
             print(f"  Personalized high-confidence books removed: {language_result['catalog_rows_deleted']}")
             print(f"  Personalized medium-confidence books reported: {language_result['medium_count']}")
         
