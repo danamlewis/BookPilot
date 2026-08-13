@@ -1501,6 +1501,15 @@ a:focus-visible {
     <button class="back-to-top" type="button" aria-label="Back to top" title="Back to top">↑</button>
 
     <script>
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>'"]/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            })[character]);
+        }
+
+        function escapeSelector(value) {
+            return CSS.escape(String(value ?? ''));
+        }
         const backToTopButton = document.querySelector('.back-to-top');
         const updateBackToTop = () => {
             backToTopButton.classList.toggle('visible', window.scrollY > 700);
@@ -1952,6 +1961,37 @@ a:focus-visible {
                     empty.classList.toggle('visible', filtered && result.total === 0);
                     return;
                 }
+                if (recommendationsContainer?.dataset.currentView === 'author') {
+                    let shown = 0;
+                    const groups = [...content.querySelectorAll('.author-container')];
+                    groups.forEach(group => {
+                        const matches = (group.authorRecommendations || []).filter(rec =>
+                            recommendationMatchesFilters(rec, query, matchMode)
+                        );
+                        group.hidden = matches.length === 0;
+                        shown += matches.length;
+                        group.querySelectorAll('.recommendation-item').forEach(item => {
+                            const textMatches = !query || item.textContent.toLocaleLowerCase().includes(query);
+                            const tier = item.dataset.interestTier || 'possible';
+                            const contentType = item.dataset.contentType || 'trade_book';
+                            item.hidden = !(textMatches && (
+                                matchMode === 'all'
+                                || (matchMode === 'strong' && tier === 'strong')
+                                || (matchMode === 'possible' && (tier === 'strong' || tier === 'possible'))
+                                || (matchMode === 'trade' && contentType === 'trade_book')
+                                || (matchMode === 'batch' && tier === 'batch')
+                            ));
+                        });
+                    });
+                    const total = groups.reduce(
+                        (sum, group) => sum + (group.authorRecommendations?.length || 0),
+                        0
+                    );
+                    const filtered = Boolean(query) || matchMode !== 'all';
+                    count.textContent = filtered ? `${shown} of ${total}` : `${total}`;
+                    empty.classList.toggle('visible', filtered && shown === 0);
+                    return;
+                }
                 const items = [...content.querySelectorAll(options.itemSelector)];
                 let shown = 0;
 
@@ -1998,12 +2038,12 @@ a:focus-visible {
                 <div class="book-list">
                     <strong>Missing books:</strong>
                     ${series.unread_books.slice(0, 5).map(b => `
-                        <div class="book-item" data-title="${b.title}" data-author="${series.author}">
-                            <span class="book-item-title">${b.position ? `#${b.position} ` : ''}${b.title}</span>
+                        <div class="book-item" data-title="${escapeHtml(b.title)}" data-author="${escapeHtml(series.author)}">
+                            <span class="book-item-title">${b.position ? `#${escapeHtml(b.position)} ` : ''}${escapeHtml(b.title)}</span>
                             <div class="book-item-actions">
-                                <button class="action-btn thumbs-up-btn" data-action="thumbs-up" data-title="${b.title}" data-author="${series.author}" title="Save">Save</button>
-                                <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${b.title}" data-author="${series.author}" title="Pass">Pass</button>
-                                <button class="action-btn already-read-btn" data-action="already-read" data-title="${b.title}" data-author="${series.author}" title="Already Read">already read</button>
+                                <button class="action-btn thumbs-up-btn" data-action="thumbs-up" data-title="${escapeHtml(b.title)}" data-author="${escapeHtml(series.author)}" title="Save">Save</button>
+                                <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${escapeHtml(b.title)}" data-author="${escapeHtml(series.author)}" title="Pass">Pass</button>
+                                <button class="action-btn already-read-btn" data-action="already-read" data-title="${escapeHtml(b.title)}" data-author="${escapeHtml(series.author)}" title="Already Read">already read</button>
                             </div>
                         </div>
                     `).join('')}
@@ -2012,7 +2052,7 @@ a:focus-visible {
             
             return `
                 <div class="series-item ${className}">
-                    <div class="series-header">${series.series_name} by ${series.author}</div>
+                    <div class="series-header">${escapeHtml(series.series_name)} by ${escapeHtml(series.author)}</div>
                     <div class="series-meta">
                         Read: ${series.books_read}/${series.total_books} (${series.completion_pct.toFixed(0)}%)
                     </div>
@@ -2058,7 +2098,7 @@ a:focus-visible {
                             authorGroupsHTML += `
                                 <div class="series-author-group">
                                     <div class="series-author-header" onclick="toggleSeriesAuthorGroup(this)">
-                                        <strong>${author} (${authorSeries.length} series${authorSeries.length !== 1 ? '' : ''})</strong>
+                                        <strong>${escapeHtml(author)} (${authorSeries.length} series${authorSeries.length !== 1 ? '' : ''})</strong>
                                         <span class="series-author-toggle">▼</span>
                                     </div>
                                     <div class="series-author-content">
@@ -2128,7 +2168,7 @@ a:focus-visible {
                     content.appendChild(summary);
                     
                     // Use event delegation on the content container for all button clicks
-                    content.addEventListener('click', (e) => {
+                    content.onclick = (e) => {
                         const btn = e.target.closest('[data-action]');
                         if (!btn) return;
                         
@@ -2145,7 +2185,7 @@ a:focus-visible {
                         } else if (action === 'already-read') {
                             handleAlreadyRead('ebook', title, author);
                         }
-                    });
+                    };
                     
                     // Build HTML in batches for better performance
                     let html = '';
@@ -2211,7 +2251,7 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('seriesContent').classList.remove('loading');
                     document.getElementById('seriesContent').innerHTML = 
-                        `<div class="error">Error loading series: ${err.message}</div>`;
+                        `<div class="error">Error loading series: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
@@ -2272,7 +2312,7 @@ a:focus-visible {
                     container.appendChild(viewToggle);
                     
                     container.collapseExpandContainer = collapseExpandContainer;
-                    container.dataset.recommendations = JSON.stringify(data);
+                    container.recommendationData = data;
                     container.dataset.currentView = 'ranked';
                     container.dataset.sortType = 'match';
                     
@@ -2290,7 +2330,7 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('audiobookContent').classList.remove('loading');
                     document.getElementById('audiobookContent').innerHTML = 
-                        `<div class="error">Error loading recommendations: ${err.message}</div>`;
+                        `<div class="error">Error loading recommendations: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
@@ -2335,9 +2375,9 @@ a:focus-visible {
                     sortControls.className = 'sort-controls';
                     sortControls.innerHTML = `
                         <span class="sort-label">Sort:</span>
-                        <button class="sort-btn active" data-sort="match" onclick="sortRecommendations('ebook', 'match', this)">Score High–Low</button>
+                        <button class="sort-btn" data-sort="match" onclick="sortRecommendations('ebook', 'match', this)">Score High–Low</button>
                         <button class="sort-btn" data-sort="score-asc" onclick="sortRecommendations('ebook', 'score-asc', this)">Score Low–High</button>
-                        <button class="sort-btn" data-sort="count" onclick="sortRecommendations('ebook', 'count', this)">Author Count</button>
+                        <button class="sort-btn active" data-sort="count" onclick="sortRecommendations('ebook', 'count', this)">Author Count</button>
                         <button class="sort-btn" data-sort="alpha" onclick="sortRecommendations('ebook', 'alpha', this)">Author A–Z</button>
                     `;
                     
@@ -2349,11 +2389,13 @@ a:focus-visible {
                     container.appendChild(viewToggle);
                     
                     container.collapseExpandContainer = collapseExpandContainer;
-                    container.dataset.recommendations = JSON.stringify(data);
-                    container.dataset.currentView = 'ranked';
-                    container.dataset.sortType = 'match';
+                    container.recommendationData = data;
+                    container.dataset.currentView = 'author';
+                    container.dataset.sortType = 'count';
                     
-                    renderRankedView(container, data, 'ebook', false);
+                    renderAuthorView(container, data, 'ebook');
+                    const scheduleRanking = window.requestIdleCallback || (callback => setTimeout(callback, 0));
+                    scheduleRanking(() => prepareRankedRecommendations(container, data));
                     
                     content.appendChild(container);
                     installContentFilter(content, {
@@ -2367,7 +2409,7 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('ebookContent').classList.remove('loading');
                     document.getElementById('ebookContent').innerHTML = 
-                        `<div class="error">Error loading recommendations: ${err.message}</div>`;
+                        `<div class="error">Error loading recommendations: ${escapeHtml(err.message)}</div>`;
                 });
         }
         
@@ -2383,7 +2425,7 @@ a:focus-visible {
             headerContent.style.alignItems = 'center';
             headerContent.style.justifyContent = 'space-between';
             headerContent.style.width = '100%';
-            headerContent.innerHTML = `<h2 style="margin: 0;">${type}</h2>`;
+            headerContent.innerHTML = `<h2 style="margin: 0;">${escapeHtml(type)}</h2>`;
             header.appendChild(headerContent);
             section.appendChild(header);
             
@@ -2396,7 +2438,7 @@ a:focus-visible {
                 const categoryHeader = document.createElement('div');
                 categoryHeader.className = 'category-header';
                 categoryHeader.innerHTML = `
-                    <span>${category} (${recs.length})</span>
+                    <span>${escapeHtml(category)} (${recs.length})</span>
                     <span class="category-toggle">▼</span>
                 `;
                 
@@ -2525,7 +2567,8 @@ a:focus-visible {
             
             // Get current view
             const currentView = container.dataset.currentView || 'category';
-            const data = JSON.parse(container.dataset.recommendations);
+            const data = container.recommendationData;
+            if (!data) return;
             
             // Remove existing sections
             const existingSections = container.querySelectorAll('.fiction-nonfiction-section, .author-view-section, .ranked-view-section, .hidden-authors-section');
@@ -2548,6 +2591,33 @@ a:focus-visible {
         }
 
         const RANKED_BATCH_SIZE = 100;
+
+        function flattenRecommendations(data) {
+            if (Array.isArray(data?.recommendations)) return [...data.recommendations];
+            const recommendations = [];
+            if (data?.recommendations) {
+                Object.values(data.recommendations.Fiction || {}).forEach(recs => recommendations.push(...recs));
+                Object.values(data.recommendations['Non-Fiction'] || {}).forEach(recs => recommendations.push(...recs));
+            }
+            return recommendations;
+        }
+
+        function prepareRankedRecommendations(container, data) {
+            if (container.rankedHigh && container.rankedLow) return;
+            const high = flattenRecommendations(data);
+            const compare = (a, b) => {
+                const scoreA = a.match_score ?? Math.round((a.similarity_score || 0) * 100);
+                const scoreB = b.match_score ?? Math.round((b.similarity_score || 0) * 100);
+                return scoreB - scoreA || a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
+            };
+            high.sort(compare);
+            container.rankedHigh = high;
+            container.rankedLow = [...high].sort((a, b) => {
+                const scoreA = a.match_score ?? Math.round((a.similarity_score || 0) * 100);
+                const scoreB = b.match_score ?? Math.round((b.similarity_score || 0) * 100);
+                return scoreA - scoreB || a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
+            });
+        }
 
         function recommendationMatchesFilters(rec, query, matchMode) {
             const searchableText = [rec.title, rec.author, rec.series_name, rec.score_reason]
@@ -2608,20 +2678,8 @@ a:focus-visible {
         // at once. Filtering operates on the complete in-memory result set and
         // each view renders a bounded batch.
         function renderRankedView(container, data, formatType, ascending = false) {
-            const allRecs = [];
-            if (Array.isArray(data.recommendations)) {
-                allRecs.push(...data.recommendations);
-            } else if (data.recommendations) {
-                Object.values(data.recommendations.Fiction || {}).forEach(recs => allRecs.push(...recs));
-                Object.values(data.recommendations['Non-Fiction'] || {}).forEach(recs => allRecs.push(...recs));
-            }
-
-            allRecs.sort((a, b) => {
-                const scoreA = a.match_score ?? Math.round((a.similarity_score || 0) * 100);
-                const scoreB = b.match_score ?? Math.round((b.similarity_score || 0) * 100);
-                const scoreOrder = ascending ? scoreA - scoreB : scoreB - scoreA;
-                return scoreOrder || a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
-            });
+            prepareRankedRecommendations(container, data);
+            const allRecs = ascending ? container.rankedLow : container.rankedHigh;
 
             if (container.collapseExpandContainer) {
                 container.collapseExpandContainer.innerHTML = '';
@@ -2804,6 +2862,13 @@ a:focus-visible {
                         content.classList.remove('expanded');
                         content.classList.add('collapsed');
                         toggle.textContent = '▶';
+                    } else if (state.authors[authorName] === false) {
+                        if (typeof authContainer.renderRecommendations === 'function') {
+                            authContainer.renderRecommendations();
+                        }
+                        content.classList.remove('collapsed');
+                        content.classList.add('expanded');
+                        toggle.textContent = '▼';
                     }
                 }
             });
@@ -2883,42 +2948,37 @@ a:focus-visible {
             sortedAuthors.forEach(author => {
                 const authorContainer = document.createElement('div');
                 authorContainer.className = 'author-container';
+                authorContainer.authorRecommendations = byAuthor[author];
                 
                 const authorHeader = document.createElement('div');
                 authorHeader.className = 'author-header';
                 // Default to collapsed for ebook recommendations
                 const defaultCollapsed = formatType === 'ebook';
                 const toggleSymbol = defaultCollapsed ? '▶' : '▼';
-                authorHeader.innerHTML = `
-                    <span>${author} <span class="author-book-count">(${byAuthor[author].length} book${byAuthor[author].length !== 1 ? 's' : ''})</span></span>
-                    <div class="author-header-actions">
-                        <button class="hide-author-btn" onclick="event.stopPropagation(); handleHideAuthor('${author.replace(/'/g, "\\'")}', '${formatType}')" title="Hide this author">Hide</button>
-                        <span class="author-toggle">${toggleSymbol}</span>
-                    </div>
-                `;
+                const authorLabel = document.createElement('span');
+                authorLabel.textContent = author;
+                const authorCount = document.createElement('span');
+                authorCount.className = 'author-book-count';
+                authorCount.textContent = ` (${byAuthor[author].length} book${byAuthor[author].length !== 1 ? 's' : ''})`;
+                authorLabel.appendChild(authorCount);
+                const authorActions = document.createElement('div');
+                authorActions.className = 'author-header-actions';
+                const hideButton = document.createElement('button');
+                hideButton.className = 'hide-author-btn';
+                hideButton.title = 'Hide this author';
+                hideButton.textContent = 'Hide';
+                hideButton.onclick = event => {
+                    event.stopPropagation();
+                    handleHideAuthor(author, formatType);
+                };
+                const authorToggle = document.createElement('span');
+                authorToggle.className = 'author-toggle';
+                authorToggle.textContent = toggleSymbol;
+                authorActions.append(hideButton, authorToggle);
+                authorHeader.append(authorLabel, authorActions);
                 
                 const authorContent = document.createElement('div');
                 authorContent.className = defaultCollapsed ? 'author-content collapsed' : 'author-content expanded';
-                
-                authorHeader.onclick = () => {
-                    const isCollapsed = authorContent.classList.contains('collapsed');
-                    if (isCollapsed) {
-                        authorContent.classList.remove('collapsed');
-                        authorContent.classList.add('expanded');
-                        authorHeader.querySelector('.author-toggle').textContent = '▼';
-                    } else {
-                        authorContent.classList.remove('expanded');
-                        authorContent.classList.add('collapsed');
-                        authorHeader.querySelector('.author-toggle').textContent = '▶';
-                    }
-                    // Update stored state when manually toggled
-                    const recommendationsContainer = authorContainer.closest('.recommendations-container');
-                    if (recommendationsContainer) {
-                        getCollapseState(recommendationsContainer);
-                    }
-                };
-                
-                authorContainer.appendChild(authorHeader);
                 
                 // Group books by series and standalone
                 const seriesGroups = {};
@@ -2955,28 +3015,57 @@ a:focus-visible {
                 // Sort standalone books by similarity score
                 standaloneBooks.sort((a, b) => (b.similarity_score || 0) - (a.similarity_score || 0));
                 
-                // Render series groups first (at the top)
-                sortedSeriesKeys.forEach(seriesKey => {
-                    const seriesBooks = seriesGroups[seriesKey];
-                    if (seriesBooks.length > 1) {
-                        // Only group if there are multiple books in the series
-                        const seriesHeader = document.createElement('div');
-                        seriesHeader.className = 'series-group-header';
-                        seriesHeader.textContent = `${seriesKey} (${seriesBooks.length} books)`;
-                        authorContent.appendChild(seriesHeader);
-                    }
-                    
-                    seriesBooks.forEach(rec => {
-                        const div = createRecommendationItem(rec, formatType);
-                        authorContent.appendChild(div);
+                const renderAuthorBooks = () => {
+                    if (authorContent.dataset.rendered === 'true') return;
+                    sortedSeriesKeys.forEach(seriesKey => {
+                        const seriesBooks = seriesGroups[seriesKey].filter(rec =>
+                            !container.suppressedRecommendationKeys?.has(
+                                recommendationIdentityKey(rec.title, rec.author)
+                            )
+                        );
+                        if (!seriesBooks.length) return;
+                        if (seriesBooks.length > 1) {
+                            const seriesHeader = document.createElement('div');
+                            seriesHeader.className = 'series-group-header';
+                            seriesHeader.textContent = `${seriesKey} (${seriesBooks.length} books)`;
+                            authorContent.appendChild(seriesHeader);
+                        }
+                        seriesBooks.forEach(rec => {
+                            authorContent.appendChild(createRecommendationItem(rec, formatType));
+                        });
                     });
-                });
-                
-                // Then render standalone books
-                standaloneBooks.forEach(rec => {
-                    const div = createRecommendationItem(rec, formatType);
-                    authorContent.appendChild(div);
-                });
+                    standaloneBooks
+                        .filter(rec => !container.suppressedRecommendationKeys?.has(
+                            recommendationIdentityKey(rec.title, rec.author)
+                        ))
+                        .forEach(rec => {
+                            authorContent.appendChild(createRecommendationItem(rec, formatType));
+                        });
+                    authorContent.dataset.rendered = 'true';
+                };
+                authorContainer.renderRecommendations = renderAuthorBooks;
+
+                authorHeader.onclick = () => {
+                    const isCollapsed = authorContent.classList.contains('collapsed');
+                    if (isCollapsed) {
+                        renderAuthorBooks();
+                        authorContent.classList.remove('collapsed');
+                        authorContent.classList.add('expanded');
+                        authorHeader.querySelector('.author-toggle').textContent = '▼';
+                        const filterInput = authorContainer.closest('.recommendations-container')
+                            ?.querySelector('.content-filter input');
+                        if (filterInput) filterInput.dispatchEvent(new Event('input'));
+                    } else {
+                        authorContent.classList.remove('expanded');
+                        authorContent.classList.add('collapsed');
+                        authorHeader.querySelector('.author-toggle').textContent = '▶';
+                    }
+                    const recommendationsContainer = authorContainer.closest('.recommendations-container');
+                    if (recommendationsContainer) getCollapseState(recommendationsContainer);
+                };
+
+                authorContainer.appendChild(authorHeader);
+                if (!defaultCollapsed) renderAuthorBooks();
                 
                 authorContainer.appendChild(authorContent);
                 authorSection.appendChild(authorContainer);
@@ -3012,10 +3101,15 @@ a:focus-visible {
                     
                     const hiddenAuthorHeader = document.createElement('div');
                     hiddenAuthorHeader.className = 'hidden-author-header';
-                    hiddenAuthorHeader.innerHTML = `
-                        <span class="hidden-author-name">${hiddenAuthor.name} <span class="author-book-count">(${hiddenAuthor.book_count} book${hiddenAuthor.book_count !== 1 ? 's' : ''})</span></span>
-                        <button class="unhide-author-btn" onclick="handleUnhideAuthor('${hiddenAuthor.name.replace(/'/g, "\\'")}', '${formatType}')" title="Unhide this author">Show</button>
-                    `;
+                    const hiddenName = document.createElement('span');
+                    hiddenName.className = 'hidden-author-name';
+                    hiddenName.textContent = `${hiddenAuthor.name} (${hiddenAuthor.book_count} book${hiddenAuthor.book_count !== 1 ? 's' : ''})`;
+                    const showButton = document.createElement('button');
+                    showButton.className = 'unhide-author-btn';
+                    showButton.title = 'Unhide this author';
+                    showButton.textContent = 'Show';
+                    showButton.onclick = () => handleUnhideAuthor(hiddenAuthor.name, formatType);
+                    hiddenAuthorHeader.append(hiddenName, showButton);
                     
                     hiddenAuthorContainer.appendChild(hiddenAuthorHeader);
                     
@@ -3057,7 +3151,8 @@ a:focus-visible {
             // Save current collapse state before removing sections
             getCollapseState(container);
             
-            const data = JSON.parse(container.dataset.recommendations);
+            const data = container.recommendationData;
+            if (!data) return;
             
             // Update button states
             container.querySelectorAll('.view-toggle-btn').forEach(btn => {
@@ -3106,12 +3201,12 @@ a:focus-visible {
             div.innerHTML = `
                 <div class="recommendation-header">
                     <div class="recommendation-title">
-                        ${rec.title} by ${rec.author}
+                        ${escapeHtml(rec.title)} by ${escapeHtml(rec.author)}
                     </div>
                 </div>
-                ${seriesDisplay ? `<div class="recommendation-series">${seriesDisplay}</div>` : ''}
-                <div class="match-badge ${rec.interest_tier || ''}" title="${rec.score_reason || ''}">${rec.interest_label || 'Possible match'} · ${rec.match_score ?? Math.round((rec.similarity_score || 0) * 100)}</div>
-                <div class="recommendation-author-count">You've read ${bookCount} book${bookCount !== 1 ? 's' : ''} by ${rec.author}</div>
+                ${seriesDisplay ? `<div class="recommendation-series">${escapeHtml(seriesDisplay)}</div>` : ''}
+                <div class="match-badge ${escapeHtml(rec.interest_tier || '')}" title="${escapeHtml(rec.score_reason || '')}">${escapeHtml(rec.interest_label || 'Possible match')} · ${escapeHtml(rec.match_score ?? Math.round((rec.similarity_score || 0) * 100))}</div>
+                <div class="recommendation-author-count">You've read ${escapeHtml(bookCount)} book${bookCount !== 1 ? 's' : ''} by ${escapeHtml(rec.author)}</div>
                 <div class="recommendation-actions">
                     <button class="action-btn thumbs-up-btn ${thumbsUpClass}" data-action="thumbs-up" title="Save" ${thumbsUpDisabled}>
                         Save
@@ -3225,6 +3320,9 @@ a:focus-visible {
                         authorContent.classList.add('collapsed');
                         toggle.textContent = '▶';
                     } else {
+                        if (typeof container.renderRecommendations === 'function') {
+                            container.renderRecommendations();
+                        }
                         authorContent.classList.remove('collapsed');
                         authorContent.classList.add('expanded');
                         toggle.textContent = '▼';
@@ -3359,10 +3457,80 @@ a:focus-visible {
                 toggle.textContent = '▶';
             }
         }
+
+        function recommendationIdentityKey(title, author) {
+            return `${String(title ?? '').trim().toLocaleLowerCase()}\u0000${String(author ?? '').trim().toLocaleLowerCase()}`;
+        }
+
+        function suppressRecommendationInClientState(formatType, title, author) {
+            const content = document.getElementById(`${formatType}Content`);
+            const container = content?.querySelector('.recommendations-container');
+            if (!container) return;
+
+            const identity = recommendationIdentityKey(title, author);
+            const matches = rec => recommendationIdentityKey(rec?.title, rec?.author) === identity;
+            const data = container.recommendationData;
+            let removedFromVisibleData = false;
+
+            if (Array.isArray(data?.recommendations)) {
+                const previousLength = data.recommendations.length;
+                data.recommendations = data.recommendations.filter(rec => !matches(rec));
+                removedFromVisibleData = data.recommendations.length !== previousLength;
+            } else if (data?.recommendations) {
+                Object.values(data.recommendations).forEach(categoryGroups => {
+                    Object.keys(categoryGroups || {}).forEach(category => {
+                        const previousLength = categoryGroups[category].length;
+                        categoryGroups[category] = categoryGroups[category].filter(rec => !matches(rec));
+                        removedFromVisibleData ||= categoryGroups[category].length !== previousLength;
+                    });
+                });
+            }
+
+            (data?.hidden_authors || []).forEach(hiddenAuthor => {
+                hiddenAuthor.recommendations = (hiddenAuthor.recommendations || []).filter(rec => !matches(rec));
+                hiddenAuthor.book_count = hiddenAuthor.recommendations.length;
+            });
+
+            if (removedFromVisibleData && Number.isFinite(data?.total)) {
+                data.total = Math.max(0, data.total - 1);
+                const tab = document.querySelector(`.tab[data-tab="${formatType}"]`);
+                if (tab) {
+                    tab.dataset.count = data.total;
+                    tab.setAttribute('aria-label', `${formatType === 'ebook' ? 'Ebooks' : 'Audiobooks'}, ${data.total} recommendations`);
+                }
+            }
+
+            // Lazy author groups retain their own list reference, while ranked
+            // views retain sorted caches. Update/invalidate both so a dismissed
+            // book cannot reappear after expanding, filtering, or re-sorting.
+            container.suppressedRecommendationKeys ||= new Set();
+            container.suppressedRecommendationKeys.add(identity);
+            container.querySelectorAll('.author-container').forEach(authorContainer => {
+                if (Array.isArray(authorContainer.authorRecommendations)) {
+                    authorContainer.authorRecommendations = authorContainer.authorRecommendations.filter(rec => !matches(rec));
+                }
+            });
+            if (Array.isArray(container.rankedRecommendations)) {
+                container.rankedRecommendations = container.rankedRecommendations.filter(rec => !matches(rec));
+            }
+            container.rankedHigh = null;
+            container.rankedLow = null;
+
+            const rankedSection = container.querySelector('.ranked-view-section');
+            if (rankedSection) {
+                const renderedMatches = rankedSection.querySelectorAll(
+                    `.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`
+                ).length;
+                rankedSection.dataset.renderedCount = String(Math.max(
+                    0,
+                    Number(rankedSection.dataset.renderedCount || 0) - renderedMatches
+                ));
+            }
+        }
         
         // Handle duplicate
         function handleDuplicate(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3397,6 +3565,7 @@ a:focus-visible {
             .then(data => {
                 console.log('Duplicate flag response:', data);
                 if (data.success) {
+                    suppressRecommendationInClientState(formatType, title, author);
                     // Start fade out animation
                     items.forEach(item => {
                         item.classList.add('removing');
@@ -3407,31 +3576,14 @@ a:focus-visible {
                         items.forEach(item => item.remove());
                     }, 500);
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Re-enable buttons if API call failed
-                        buttons.forEach(btn => {
-                            btn.disabled = false;
-                            btn.classList.remove('selected');
-                        });
-                        console.error('Failed to flag duplicate:', data.error, data);
-                        alert(`Failed to save: ${data.error || 'Unknown error'}`);
-                    }
+                    // The server exhausted its retries, so nothing was saved.
+                    // Keep the item visible and let the user retry the action.
+                    buttons.forEach(btn => {
+                        btn.disabled = false;
+                        btn.classList.remove('selected');
+                    });
+                    console.error('Failed to flag duplicate:', data.error, data);
+                    alert(`Failed to save: ${data.error || 'Unknown error'}`);
                 }
             })
             .catch(error => {
@@ -3447,7 +3599,7 @@ a:focus-visible {
         
         // Handle recategorize
         function handleRecategorize(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             items.forEach(item => {
@@ -3505,7 +3657,7 @@ a:focus-visible {
         
         // Handle thumbs up
         function handleThumbsUp(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             items.forEach(item => {
                 const btn = item.querySelector('[data-action="thumbs-up"]');
@@ -3558,7 +3710,7 @@ a:focus-visible {
         
         // Handle thumbs down
         function handleThumbsDown(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3583,6 +3735,7 @@ a:focus-visible {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    suppressRecommendationInClientState(formatType, title, author);
                     // Start fade out animation
                     items.forEach(item => {
                         // Check if this is a book-item in a series, and if removing it leaves no unread books
@@ -3629,29 +3782,13 @@ a:focus-visible {
                         loadBooksToRead();
                     }
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Revert on other errors
-                        buttons.forEach(btn => {
-                            btn.classList.remove('selected');
-                            btn.disabled = false;
-                        });
-                    }
+                    // The failed action was not persisted. Leave the book in
+                    // place and restore the button so the user can retry.
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                    alert(data.error || 'Failed to save. Please try again.');
                 }
             })
             .catch(err => {
@@ -3666,7 +3803,7 @@ a:focus-visible {
         
         // Handle already read flag
         function handleAlreadyRead(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"], .book-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"], .book-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3691,6 +3828,7 @@ a:focus-visible {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    suppressRecommendationInClientState(formatType, title, author);
                     // Start fade out animation
                     items.forEach(item => {
                         item.classList.add('removing');
@@ -3734,29 +3872,13 @@ a:focus-visible {
                         loadBooksToRead();
                     }
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Revert on other errors
-                        buttons.forEach(btn => {
-                            btn.classList.remove('selected');
-                            btn.disabled = false;
-                        });
-                    }
+                    // The failed action was not persisted. Leave the book in
+                    // place and restore the button so the user can retry.
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                    alert(data.error || 'Failed to save. Please try again.');
                 }
             })
             .catch(err => {
@@ -3771,7 +3893,7 @@ a:focus-visible {
         
         // Handle non-English flag
         function handleNonEnglish(formatType, title, author) {
-            const items = document.querySelectorAll(`.recommendation-item[data-title="${title}"][data-author="${author}"]`);
+            const items = document.querySelectorAll(`.recommendation-item[data-title="${escapeSelector(title)}"][data-author="${escapeSelector(author)}"]`);
             const buttons = [];
             
             // Show tap animation immediately
@@ -3796,6 +3918,7 @@ a:focus-visible {
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
+                    suppressRecommendationInClientState(formatType, title, author);
                     // Start fade out animation
                     items.forEach(item => {
                         item.classList.add('removing');
@@ -3805,29 +3928,13 @@ a:focus-visible {
                         items.forEach(item => item.remove());
                     }, 500);
                 } else {
-                    // Handle database locked or other errors
-                    if (data.retry) {
-                        // Database is locked - show message but keep the visual feedback
-                        items.forEach(item => {
-                            const errorMsg = document.createElement('div');
-                            errorMsg.className = 'error';
-                            errorMsg.style.marginTop = '10px';
-                            errorMsg.style.fontSize = '0.85em';
-                            errorMsg.textContent = 'Database busy - action will be saved when available';
-                            item.appendChild(errorMsg);
-                            // Still fade out after a delay
-                            setTimeout(() => {
-                                item.classList.add('removing');
-                                setTimeout(() => item.remove(), 500);
-                            }, 2000);
-                        });
-                    } else {
-                        // Revert on other errors
-                        buttons.forEach(btn => {
-                            btn.classList.remove('selected');
-                            btn.disabled = false;
-                        });
-                    }
+                    // The failed action was not persisted. Leave the book in
+                    // place and restore the button so the user can retry.
+                    buttons.forEach(btn => {
+                        btn.classList.remove('selected');
+                        btn.disabled = false;
+                    });
+                    alert(data.error || 'Failed to save. Please try again.');
                 }
             })
             .catch(err => {
@@ -3870,7 +3977,7 @@ a:focus-visible {
                     }
                     
                     // Use event delegation on the content container for all button clicks
-                    content.addEventListener('click', (e) => {
+                    content.onclick = (e) => {
                         const btn = e.target.closest('[data-action]');
                         if (!btn) return;
                         
@@ -3891,7 +3998,7 @@ a:focus-visible {
                         } else if (action === 'already-read') {
                             handleAlreadyRead(formatType, title, author);
                         }
-                    });
+                    };
                     
                     Object.entries(data.books).forEach(([author, books]) => {
                         const authorSection = document.createElement('div');
@@ -3911,20 +4018,20 @@ a:focus-visible {
                             div.innerHTML = `
                                 <div class="recommendation-header">
                                     <div class="recommendation-title">
-                                        ${book.title}
-                                        <span class="score">${book.format}</span>
+                                        ${escapeHtml(book.title)}
+                                        <span class="score">${escapeHtml(book.format)}</span>
                                     </div>
                                 </div>
-                                ${book.category ? `<div class="recommendation-meta">${book.category}</div>` : ''}
-                                ${book.reason ? `<div class="recommendation-meta">${book.reason}</div>` : ''}
+                                ${book.category ? `<div class="recommendation-meta">${escapeHtml(book.category)}</div>` : ''}
+                                ${book.reason ? `<div class="recommendation-meta">${escapeHtml(book.reason)}</div>` : ''}
                                 <div class="recommendation-actions">
-                                    <button class="action-btn thumbs-up-btn selected" data-action="thumbs-up" data-title="${book.title}" data-author="${book.author}" title="Save" disabled>
+                                    <button class="action-btn thumbs-up-btn selected" data-action="thumbs-up" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(book.author)}" title="Save" disabled>
                                         Save
                                     </button>
-                                    <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${book.title}" data-author="${book.author}" title="Pass">
+                                    <button class="action-btn thumbs-down-btn" data-action="thumbs-down" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(book.author)}" title="Pass">
                                         Pass
                                     </button>
-                                    <button class="action-btn already-read-btn" data-action="already-read" data-title="${book.title}" data-author="${book.author}" title="Already Read">
+                                    <button class="action-btn already-read-btn" data-action="already-read" data-title="${escapeHtml(book.title)}" data-author="${escapeHtml(book.author)}" title="Already Read">
                                         already read
                                     </button>
                                 </div>
@@ -3949,7 +4056,7 @@ a:focus-visible {
                 .catch(err => {
                     document.getElementById('booksToReadContent').classList.remove('loading');
                     document.getElementById('booksToReadContent').innerHTML = 
-                        `<div class="error">Error loading books: ${err.message}</div>`;
+                        `<div class="error">Error loading books: ${escapeHtml(err.message)}</div>`;
                 });
         }
         

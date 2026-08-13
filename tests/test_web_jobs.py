@@ -89,6 +89,36 @@ class WebJobApiTests(unittest.TestCase):
         self.assertIn("Check for New Books", page)
         self.assertIn('id="jobStatusRow"', page)
         self.assertIn('id="libraryResultReview"', page)
+        self.assertIn('class="sort-btn active" data-sort="count"', page)
+        self.assertRegex(page, r"refreshHeaderStatus\(\);\s*pollLibraryJob\(\);")
+        self.assertNotIn("action will be saved when available", page)
+        self.assertIn("The failed action was not persisted", page)
+        self.assertIn("function suppressRecommendationInClientState", page)
+        self.assertEqual(
+            page.count("suppressRecommendationInClientState(formatType, title, author);"),
+            4,
+        )
+        self.assertIn("container.rankedHigh = null", page)
+
+    def test_ebook_recommendations_are_generated_once_per_request(self):
+        generated = {
+            "Fiction": [{
+                "catalog_book_id": 1,
+                "title": "A New Book",
+                "author": "Example Author",
+            }],
+            "General": [{
+                "catalog_book_id": 1,
+                "title": "A New Book",
+                "author": "Example Author",
+            }],
+        }
+        with patch.object(web_app, "recommend_new_books", return_value=generated) as recommend:
+            response = self.client.get("/api/recommendations/ebook")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["total"], 1)
+        recommend.assert_called_once()
 
     def test_imports_uploaded_libby_csv(self):
         csv_bytes = (
