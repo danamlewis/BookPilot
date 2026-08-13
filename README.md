@@ -277,6 +277,32 @@ Export an auditable CSV (score, tier, content type, and explanation):
 python scripts/analyze_personal_fit.py --csv data/personal-fit-audit.csv
 ```
 
+#### Review series books possibly read before Libby tracking
+
+Create a read-only CSV from the current ebook and audiobook recommendation
+sets. By default, only authors with more than five remaining recommendations
+are inspected:
+
+```bash
+python scripts/review_prior_series_reads.py
+```
+
+Test specific authors or change the threshold:
+
+```bash
+python scripts/review_prior_series_reads.py \
+  --author "Example Author One" \
+  --author "Example Author Two" \
+  --author "Example Author Three" \
+  --min-unread 5 \
+  --output data/series-review.csv
+```
+
+The script uses only titles already eligible for the recommendation pages,
+plus known-read books used as series anchors. It does not mark books read or
+change the database. Inferred series and prior-read likelihood are included as
+evidence for manual review.
+
 #### Check Status
 ```bash
 python scripts/bookpilot.py status
