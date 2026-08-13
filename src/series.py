@@ -1,14 +1,83 @@
 """Series analysis for ebooks"""
+from collections import defaultdict
 from typing import List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from .models import Author, AuthorCatalogBook, Series, Book, Recommendation
 
 
+def _analyze_author_series_rows(author: Author, catalog_books, recommendation_rows) -> List[Dict]:
+    """Build one author's series result from already-loaded rows."""
+    author_keys = {
+        value.casefold().strip()
+        for value in (author.name, author.normalized_name)
+        if value
+    }
+    author_recs = [
+        rec for rec in recommendation_rows
+        if rec.author and rec.author.casefold().strip() in author_keys
+    ]
+    already_read_set = {
+        rec.title.casefold().strip()
+        for rec in author_recs
+        if rec.title and rec.already_read
+    }
+    filtered_set = {
+        rec.title.casefold().strip()
+        for rec in author_recs
+        if rec.title and (rec.thumbs_down or rec.duplicate or rec.non_english)
+    }
+
+    series_dict = {}
+    for book in catalog_books:
+        if not book.series_name:
+            continue
+        data = series_dict.setdefault(book.series_name, {
+            'books': [], 'read_books': [], 'unread_books': []
+        })
+        data['books'].append(book)
+        title_key = (book.title or '').casefold().strip()
+        if book.is_read or title_key in already_read_set:
+            data['read_books'].append(book)
+        elif title_key not in filtered_set:
+            data['unread_books'].append(book)
+
+    results = []
+    for series_name, data in series_dict.items():
+        books = data['books']
+        read_books = data['read_books']
+        unread_books = data['unread_books']
+        books.sort(key=lambda book: book.series_position or 999)
+        unread_books.sort(key=lambda book: book.series_position or 999)
+        if not read_books and not unread_books:
+            continue
+        status = 'not_started' if not read_books else ('complete' if not unread_books else 'partial')
+        results.append({
+            'series_name': series_name,
+            'author': author.name,
+            'total_books': len(books),
+            'books_read': len(read_books),
+            'completion_pct': (len(read_books) / len(books) * 100) if books else 0,
+            'status': status,
+            'unread_books': [
+                {'title': book.title, 'isbn': book.isbn, 'position': book.series_position,
+                 'categories': book.categories}
+                for book in unread_books
+            ],
+            'read_books': [
+                {'title': book.title, 'isbn': book.isbn, 'position': book.series_position}
+                for book in read_books
+            ],
+        })
+    status_order = {'partial': 0, 'not_started': 1, 'complete': 2}
+    results.sort(key=lambda item: (status_order.get(item['status'], 99), -item['completion_pct']))
+    return results
+
+
 def analyze_author_series(author: Author, db_session: Session) -> List[Dict]:
     """
     Analyze series for an author
-    
+
     Returns list of series with:
     - Series name
     - Total books in series
@@ -20,139 +89,24 @@ def analyze_author_series(author: Author, db_session: Session) -> List[Dict]:
     catalog_books = db_session.query(AuthorCatalogBook).filter_by(
         author_id=author.id
     ).filter(AuthorCatalogBook.series_name.isnot(None)).all()
-    
-    # Get all recommendations marked as already_read for this author
-    # Check both by exact author name and normalized name
-    already_read_recs = db_session.query(Recommendation).filter(
-        or_(
-            func.lower(Recommendation.author) == author.name.lower(),
-            func.lower(Recommendation.author) == author.normalized_name.lower()
-        ),
-        Recommendation.already_read.is_(True)
-    ).all()
-    
-    # Create a set of (title_lower, author_lower) for quick lookup
-    already_read_set = {
-        (rec.title.lower().strip() if rec.title else '', 
-         rec.author.lower().strip() if rec.author else '')
-        for rec in already_read_recs
-        if rec.title and rec.author
-    }
-    
-    # Get all filtered recommendations (thumbs_down, duplicate, non_english) for this author
-    # These should be excluded from the unread_books list
-    filtered_recs = db_session.query(Recommendation).filter(
-        or_(
-            func.lower(Recommendation.author) == author.name.lower(),
-            func.lower(Recommendation.author) == author.normalized_name.lower()
-        ),
-        or_(
-            Recommendation.thumbs_down == True,
-            Recommendation.duplicate == True,
-            Recommendation.non_english == True
-        )
-    ).all()
-    
-    # Create a set of filtered books for quick lookup
-    filtered_set = {
-        (rec.title.lower().strip() if rec.title else '', 
-         rec.author.lower().strip() if rec.author else '')
-        for rec in filtered_recs
-        if rec.title and rec.author
-    }
-    
-    # Group by series
-    series_dict = {}
-    for book in catalog_books:
-        series_name = book.series_name
-        if not series_name:
-            continue
-        
-        if series_name not in series_dict:
-            series_dict[series_name] = {
-                'books': [],
-                'read_books': [],
-                'unread_books': []
-            }
-        
-        series_dict[series_name]['books'].append(book)
-        
-        # Check if book is read: either is_read=True OR marked as already_read in Recommendation
-        book_title_lower = (book.title.lower().strip() if book.title else '')
-        book_author_lower = (author.name.lower().strip() if author.name else '')
-        is_read = book.is_read or (book_title_lower, book_author_lower) in already_read_set
-        
-        if is_read:
-            series_dict[series_name]['read_books'].append(book)
-        else:
-            # Only add to unread_books if it's not filtered out (thumbs_down, duplicate, non_english)
-            book_key = (book_title_lower, book_author_lower)
-            if book_key not in filtered_set:
-                series_dict[series_name]['unread_books'].append(book)
-    
-    # Build results
-    results = []
-    for series_name, data in series_dict.items():
-        books = data['books']
-        read_books = data['read_books']
-        unread_books = data['unread_books']
-        
-        # Sort by series position if available
-        books.sort(key=lambda b: b.series_position if b.series_position else 999)
-        unread_books.sort(key=lambda b: b.series_position if b.series_position else 999)
-        
-        # Determine status based on read_books vs unread_books (excluding filtered books from consideration)
-        # If all non-filtered books are read, series is complete
-        # If no books are read but there are unread books available, series is not_started
-        # If no books are read AND all unread books are filtered out, skip the series (don't show it)
-        # Otherwise, it's partial
-        
-        # Skip series that have no read books and all unread books are filtered out
-        if len(read_books) == 0 and len(unread_books) == 0:
-            continue  # Skip this series entirely - all books filtered out and none read
-        
-        if len(read_books) == 0:
-            status = 'not_started'
-        elif len(unread_books) == 0:
-            # All non-filtered books are read
-            status = 'complete'
-        else:
-            status = 'partial'
-        
-        # Calculate completion percentage
-        completion_pct = (len(read_books) / len(books) * 100) if books else 0
-        
-        results.append({
-            'series_name': series_name,
-            'author': author.name,
-            'total_books': len(books),
-            'books_read': len(read_books),
-            'completion_pct': completion_pct,
-            'status': status,
-            'unread_books': [
-                {
-                    'title': b.title,
-                    'isbn': b.isbn,
-                    'position': b.series_position,
-                    'categories': b.categories
-                }
-                for b in unread_books
-            ],
-            'read_books': [
-                {
-                    'title': b.title,
-                    'isbn': b.isbn,
-                    'position': b.series_position
-                }
-                for b in read_books
-            ]
-        })
-    
-    # Sort by status (partial first, then not_started, then complete)
-    status_order = {'partial': 0, 'not_started': 1, 'complete': 2}
-    results.sort(key=lambda x: (status_order.get(x['status'], 99), -x['completion_pct']))
-    
-    return results
+
+    author_names = [
+        value.casefold().strip()
+        for value in (author.name, author.normalized_name)
+        if value
+    ]
+    recommendation_rows = []
+    if author_names:
+        recommendation_rows = db_session.query(Recommendation).filter(
+            func.lower(func.trim(Recommendation.author)).in_(author_names),
+            or_(
+                Recommendation.already_read.is_(True),
+                Recommendation.thumbs_down.is_(True),
+                Recommendation.duplicate.is_(True),
+                Recommendation.non_english.is_(True),
+            )
+        ).all()
+    return _analyze_author_series_rows(author, catalog_books, recommendation_rows)
 
 
 def get_standalone_books(author: Author, db_session: Session) -> List[Dict]:
@@ -191,30 +145,49 @@ def analyze_all_series(db_session: Session, format_filter: str = 'ebook') -> Dic
         Dict with series analysis results
     """
     authors = db_session.query(Author).all()
-    
+    catalog_query = db_session.query(AuthorCatalogBook).filter(
+        AuthorCatalogBook.series_name.isnot(None),
+        AuthorCatalogBook.series_name != '',
+    )
+    standalone_count_query = db_session.query(func.count(AuthorCatalogBook.id)).filter(
+        AuthorCatalogBook.is_read.is_(False),
+        or_(
+            AuthorCatalogBook.series_name.is_(None),
+            AuthorCatalogBook.series_name == '',
+        ),
+    )
+    if format_filter in {'ebook', 'audiobook'}:
+        catalog_query = catalog_query.filter(or_(
+            AuthorCatalogBook.format_available.in_([format_filter, 'both', 'unknown']),
+            AuthorCatalogBook.format_available.is_(None),
+        ))
+        standalone_count_query = standalone_count_query.filter(or_(
+            AuthorCatalogBook.format_available.in_([format_filter, 'both', 'unknown']),
+            AuthorCatalogBook.format_available.is_(None),
+        ))
+    catalog_by_author = defaultdict(list)
+    for book in catalog_query.all():
+        catalog_by_author[book.author_id].append(book)
+    total_standalone = standalone_count_query.scalar()
+    recommendation_rows = db_session.query(Recommendation).filter(or_(
+        Recommendation.already_read.is_(True),
+        Recommendation.thumbs_down.is_(True),
+        Recommendation.duplicate.is_(True),
+        Recommendation.non_english.is_(True),
+    )).all()
     all_series = []
-    all_standalone = []
-    
     for author in authors:
-        # Get series for this author
-        series_list = analyze_author_series(author, db_session)
-        all_series.extend(series_list)
-        
-        # Get standalone books
-        standalone = get_standalone_books(author, db_session)
-        for book in standalone:
-            book['author'] = author.name
-        all_standalone.extend(standalone)
-    
-    # Filter by format if needed (this would require checking if books are available in format)
-    # For now, we'll return all and filter in the UI
+        all_series.extend(_analyze_author_series_rows(
+            author, catalog_by_author.get(author.id, []), recommendation_rows
+        ))
     
     return {
         'series': all_series,
-        'standalone_books': all_standalone,
         'total_series': len(all_series),
         'partial_series': len([s for s in all_series if s['status'] == 'partial']),
         'not_started_series': len([s for s in all_series if s['status'] == 'not_started']),
         'complete_series': len([s for s in all_series if s['status'] == 'complete']),
-        'total_standalone': len(all_standalone)
+        # Preserve the CLI summary contract without returning the large,
+        # browser-unused standalone_books payload.
+        'total_standalone': total_standalone,
     }
