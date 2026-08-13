@@ -363,8 +363,11 @@ def find_author_in_openlibrary(author_name: str, client: OpenLibraryClient,
                     if work_title in known_titles_lower:
                         # Found a match! This author has at least one book the user has read
                         return author_key
-            except:
-                # If we can't check works, continue to next author
+            except requests.RequestException:
+                raise
+            except Exception:
+                # Malformed data for one candidate should not prevent checking
+                # the remaining search results.
                 continue
     
     # Fall back to first result if no precise match found
@@ -382,7 +385,9 @@ def fetch_author_catalog(author: Author, db_session: Session,
                          global_title_lookup: Dict[str, AuthorCatalogBook] = None,
                          global_isbn_lookup: Dict[str, AuthorCatalogBook] = None,
                          catalog_count_hint: int = None,
-                         collect_new_or_updated_ids: List = None) -> Dict:
+                         collect_new_or_updated_ids: List = None,
+                         global_work_lookup: Dict[str, AuthorCatalogBook] = None,
+                         history_books: List[Book] = None) -> Dict:
     """
     Fetch catalog for an author and store in database
     
@@ -393,6 +398,8 @@ def fetch_author_catalog(author: Author, db_session: Session,
         only_recent: If True, only fetch books published in the last N years (for existing authors)
         recent_years: Number of years to look back for recent books (default: 3)
         ol_client: Optional shared Open Library client (reused for speed)
+        global_title_lookup: Deprecated compatibility argument. Title-only
+            cross-author deduplication is intentionally no longer performed.
         collect_new_or_updated_ids: If provided, append IDs of new/updated books (for only_recent + auto_cleanup).
     
     Returns:
@@ -419,7 +426,7 @@ def fetch_author_catalog(author: Author, db_session: Session,
     # represented in the imported reading history. Keep this guard here as well
     # as in the batch scheduler so direct callers cannot accidentally populate
     # catalogs for catalog-derived or misassigned author records.
-    your_books = reading_history_books_for_author(author, db_session)
+    your_books = history_books if history_books is not None else reading_history_books_for_author(author, db_session)
     if not your_books:
         return {
             'skipped': True,
@@ -522,10 +529,16 @@ def fetch_author_catalog(author: Author, db_session: Session,
             db_session.commit()
         
         try:
-            works = ol_client.get_author_works(author_key, limit=200)
+            # Catalog discovery must always use a current, complete author-work
+            # listing. Detail/edition caches are safe for routine recent checks,
+            # while an explicit full refresh bypasses those caches as well.
+            works = ol_client.get_author_works(author_key, limit=None, fresh=True)
+        except requests.RequestException as e:
+            db_session.rollback()
+            return {'error': f'Network/API error: {e}', 'is_systemic': True}
         except Exception as e:
-            print(f"  Warning: Failed to fetch works for {author.name}: {e}")
-            works = []
+            db_session.rollback()
+            return {'error': f'Catalog fetch failed: {e}', 'is_systemic': True}
         
         if not works:
             print(f"  No works found for {author.name}")
@@ -539,12 +552,12 @@ def fetch_author_catalog(author: Author, db_session: Session,
                 continue
             
             # OPTION 1: Skip if we already have this work (by Open Library key)
-            if work_key in existing_work_keys:
+            if not force_refresh and work_key in existing_work_keys:
                 skipped_existing += 1
                 continue  # Skip - already have this book, saves 2 API calls (work_details + editions)
             
             # Get work details (need this for title and early publication date check)
-            work_details = ol_client.get_work_details(work_key)
+            work_details = ol_client.get_work_details(work_key, fresh=force_refresh)
             if not work_details:
                 continue
             
@@ -561,7 +574,7 @@ def fetch_author_catalog(author: Author, db_session: Session,
                 # If pub_year is None, we'll check again after getting editions
             
             # Get editions to check language and ISBN (only if we got this far)
-            editions = ol_client.get_editions(work_key)
+            editions = ol_client.get_editions(work_key, fresh=force_refresh)
             english_edition = None
             publication_date = None
             
@@ -653,24 +666,26 @@ def fetch_author_catalog(author: Author, db_session: Session,
             if not existing:
                 cross_author_duplicate = None
                 
-                if global_title_lookup and title_lower:
-                    cross_author_duplicate = global_title_lookup.get(title_lower)
-                
-                if not cross_author_duplicate and global_isbn_lookup and isbn:
+                # Work IDs and ISBNs identify editions/works across a split author.
+                # A title alone does not: unrelated authors can publish books with
+                # identical titles.
+                if global_work_lookup is not None and work_key:
+                    cross_author_duplicate = global_work_lookup.get(work_key)
+                if not cross_author_duplicate and global_isbn_lookup is not None and isbn:
                     cross_author_duplicate = global_isbn_lookup.get(isbn)
                 
-                # Fall back to DB query if global lookups not available (backward compatibility)
-                if not cross_author_duplicate and (not global_title_lookup or not global_isbn_lookup):
-                    # Check by exact title match across all authors
-                    cross_author_duplicate = db_session.query(AuthorCatalogBook).filter(
-                        func.lower(AuthorCatalogBook.title) == title_lower
+                # Fall back independently for each lookup a caller did not
+                # provide.  ``global_title_lookup`` remains accepted above for
+                # positional API compatibility, but is deliberately ignored:
+                # unrelated authors can publish books with identical titles.
+                if not cross_author_duplicate and global_work_lookup is None and work_key:
+                    cross_author_duplicate = db_session.query(AuthorCatalogBook).filter_by(
+                        open_library_key=work_key
                     ).first()
-                    
-                    # Also check by ISBN across all authors
-                    if not cross_author_duplicate and isbn:
-                        cross_author_duplicate = db_session.query(AuthorCatalogBook).filter_by(
-                            isbn=isbn
-                        ).first()
+                if not cross_author_duplicate and global_isbn_lookup is None and isbn:
+                    cross_author_duplicate = db_session.query(AuthorCatalogBook).filter_by(
+                        isbn=isbn
+                    ).first()
                 
                 # If found a duplicate across authors, skip adding it again
                 # (We keep the first one found to avoid duplicates from author group splits)
@@ -680,13 +695,40 @@ def fetch_author_catalog(author: Author, db_session: Session,
             
             if existing:
                 # Update if needed
+                previous_work_key = existing.open_library_key
+                previous_isbn = existing.isbn
+                previous_title_lower = (existing.title or '').lower().strip()
                 existing.title = title
+                existing.open_library_key = work_key or existing.open_library_key
                 existing.isbn = isbn or existing.isbn
                 existing.series_name = series_name or existing.series_name
                 existing.series_position = series_position if series_position else existing.series_position
                 if publication_date:
                     existing.publication_date = publication_date
                 existing.fetched_at = datetime.utcnow()
+                if previous_work_key and previous_work_key != existing.open_library_key:
+                    if existing_by_work_key.get(previous_work_key) is existing:
+                        existing_by_work_key.pop(previous_work_key, None)
+                    if global_work_lookup is not None and global_work_lookup.get(previous_work_key) is existing:
+                        global_work_lookup.pop(previous_work_key, None)
+                if previous_isbn and previous_isbn != existing.isbn:
+                    if existing_by_isbn.get((author.id, previous_isbn)) is existing:
+                        existing_by_isbn.pop((author.id, previous_isbn), None)
+                    if global_isbn_lookup is not None and global_isbn_lookup.get(previous_isbn) is existing:
+                        global_isbn_lookup.pop(previous_isbn, None)
+                if previous_title_lower and previous_title_lower != title_lower:
+                    if existing_by_title.get((author.id, previous_title_lower)) is existing:
+                        existing_by_title.pop((author.id, previous_title_lower), None)
+                if title_lower:
+                    existing_by_title[(author.id, title_lower)] = existing
+                if existing.open_library_key:
+                    existing_by_work_key[existing.open_library_key] = existing
+                    if global_work_lookup is not None:
+                        global_work_lookup[existing.open_library_key] = existing
+                if existing.isbn:
+                    existing_by_isbn[(author.id, existing.isbn)] = existing
+                    if global_isbn_lookup is not None:
+                        global_isbn_lookup[existing.isbn] = existing
                 books_updated += 1
                 new_or_updated_books.append(existing)
             else:
@@ -702,6 +744,14 @@ def fetch_author_catalog(author: Author, db_session: Session,
                     publication_date=publication_date
                 )
                 db_session.add(catalog_book)
+                existing_by_work_key[work_key] = catalog_book
+                existing_by_title[(author.id, title_lower)] = catalog_book
+                if isbn:
+                    existing_by_isbn[(author.id, isbn)] = catalog_book
+                if global_work_lookup is not None and work_key:
+                    global_work_lookup[work_key] = catalog_book
+                if global_isbn_lookup is not None and isbn:
+                    global_isbn_lookup[isbn] = catalog_book
                 books_added += 1
                 added_books.append({
                     'title': title,
@@ -722,7 +772,12 @@ def fetch_author_catalog(author: Author, db_session: Session,
     if new_or_updated_books:
         match_catalog_to_history(author, db_session, books_to_match=new_or_updated_books, your_books=your_books)
         if collect_new_or_updated_ids is not None:
-            collect_new_or_updated_ids.extend(b.id for b in new_or_updated_books)
+            # New ORM rows do not receive primary keys until flush. Cleanup
+            # must never receive ``None`` in place of the books just added.
+            db_session.flush()
+            collect_new_or_updated_ids.extend(
+                book.id for book in new_or_updated_books if book.id is not None
+            )
     else:
         # No new/updated books, but user might have read books - match all catalog books
         match_catalog_to_history(author, db_session, your_books=your_books)
@@ -849,7 +904,13 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
     # a forced refresh. Book.author stores the normalized author name produced
     # during ingest, so compare it case-insensitively with surrounding whitespace
     # removed.
-    history_author_keys = reading_history_author_keys(db_session)
+    all_history_books = db_session.query(Book).all()
+    history_books_by_author_key = {}
+    for book in all_history_books:
+        key = (book.author or '').strip().casefold()
+        if key:
+            history_books_by_author_key.setdefault(key, []).append(book)
+    history_author_keys = set(history_books_by_author_key)
     history_authors = [
         author for author in all_authors
         if author_has_reading_history(author, history_author_keys)
@@ -861,9 +922,22 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
             "reading history. Use scripts/prune_historyless_authors.py to review or remove them."
         )
 
+    history_by_author_id = {}
+    for author in history_authors:
+        books = []
+        seen_book_ids = set()
+        for value in (author.name, author.normalized_name):
+            for book in history_books_by_author_key.get((value or '').strip().casefold(), []):
+                if book.id not in seen_book_ids:
+                    books.append(book)
+                    seen_book_ids.add(book.id)
+        history_by_author_id[author.id] = books
     organization_authors = [
         author for author in history_authors
-        if organization_reason_for_author(author, db_session)
+        if organization_author_reason(
+            author.name or author.normalized_name,
+            (book.publisher for book in history_by_author_id[author.id]),
+        )
     ]
     organization_author_ids = {author.id for author in organization_authors}
     refresh_eligible_authors = [
@@ -908,17 +982,20 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
     # This eliminates expensive DB queries for cross-author duplicates
     print("Building global catalog lookup maps for duplicate detection...")
     all_catalog_books = db_session.query(AuthorCatalogBook).all()
-    global_title_lookup = {}  # title_lower -> first AuthorCatalogBook found
     global_isbn_lookup = {}  # isbn -> first AuthorCatalogBook found
-    for book in all_catalog_books:
-        if book.title:
-            title_lower = book.title.lower().strip()
-            if title_lower and title_lower not in global_title_lookup:
-                global_title_lookup[title_lower] = book
-        if book.isbn:
-            if book.isbn not in global_isbn_lookup:
+    global_work_lookup = {}  # Open Library work key -> first catalog row
+    def rebuild_global_lookups(catalog_books=None):
+        global_isbn_lookup.clear()
+        global_work_lookup.clear()
+        rows = catalog_books if catalog_books is not None else db_session.query(AuthorCatalogBook).all()
+        for book in rows:
+            if book.isbn and book.isbn not in global_isbn_lookup:
                 global_isbn_lookup[book.isbn] = book
-    print(f"  Built lookup maps: {len(global_title_lookup)} titles, {len(global_isbn_lookup)} ISBNs\n")
+            if book.open_library_key and book.open_library_key not in global_work_lookup:
+                global_work_lookup[book.open_library_key] = book
+
+    rebuild_global_lookups(all_catalog_books)
+    print(f"  Built lookup maps: {len(global_work_lookup)} works, {len(global_isbn_lookup)} ISBNs\n")
     
     results = {
         'total_authors': total_author_count,
@@ -944,6 +1021,7 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
     )
     
     consecutive_errors = 0
+    interrupted = False
     new_or_updated_ids = [] if (only_recent and auto_cleanup) else None
     processed_author_ids = [] if (only_recent and auto_cleanup) else None
     
@@ -973,10 +1051,11 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
             result = fetch_author_catalog(author, db_session, force_refresh, 
                                          only_recent=only_recent, recent_years=recent_years,
                                          ol_client=ol_client,
-                                         global_title_lookup=global_title_lookup,
                                          global_isbn_lookup=global_isbn_lookup,
+                                         global_work_lookup=global_work_lookup,
                                          catalog_count_hint=catalog_count_hint,
-                                         collect_new_or_updated_ids=new_or_updated_ids)
+                                         collect_new_or_updated_ids=new_or_updated_ids,
+                                         history_books=history_by_author_id[author.id])
             
             if result.get('skipped'):
                 results['catalogs_skipped'] += 1
@@ -1016,9 +1095,12 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                 
         except KeyboardInterrupt:
             print("\n\nInterrupted by user. Progress saved.")
+            interrupted = True
             break
         except requests.RequestException as e:
             # Network/API errors - these are systemic
+            db_session.rollback()
+            rebuild_global_lookups()
             error_msg = f"{author.name}: Network error - {str(e)}"
             results['errors'].append(error_msg)
             consecutive_errors += 1
@@ -1033,6 +1115,8 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                 break
         except Exception as e:
             # Other unexpected errors - assume systemic
+            db_session.rollback()
+            rebuild_global_lookups()
             error_msg = f"{author.name}: {str(e)}"
             results['errors'].append(error_msg)
             consecutive_errors += 1
@@ -1082,7 +1166,7 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
                 catalog_book_ids=cleanup_ids,
             )
             print(
-                "Multi-book package cleanup: "
+                "Excluded package/edition cleanup: "
                 f"removed {collection_result['catalog_removed']} catalog books and "
                 f"{collection_result['recommendations_removed']} saved recommendations."
             )
@@ -1101,17 +1185,20 @@ def fetch_all_author_catalogs(db_session: Session, force_refresh: bool = False,
         else:
             print(f"\nNo catalog books to cleanup for the {len(processed_author_ids)} authors processed.")
     
-    # Update system metadata: last catalog check
-    metadata = db_session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
-    if metadata:
-        metadata.value = datetime.utcnow().isoformat()
-        metadata.updated_at = datetime.utcnow()
-    else:
-        metadata = SystemMetadata(
-            key='last_catalog_check',
-            value=datetime.utcnow().isoformat()
-        )
-        db_session.add(metadata)
+    # This timestamp means the requested run completed, not merely that some
+    # author progress was saved. Do not hide a stopped/interrupted refresh
+    # behind a misleading fresh global status.
+    if not results['stopped_early'] and not interrupted:
+        metadata = db_session.query(SystemMetadata).filter_by(key='last_catalog_check').first()
+        if metadata:
+            metadata.value = datetime.utcnow().isoformat()
+            metadata.updated_at = datetime.utcnow()
+        else:
+            metadata = SystemMetadata(
+                key='last_catalog_check',
+                value=datetime.utcnow().isoformat()
+            )
+            db_session.add(metadata)
     
     db_session.commit()
     report_progress(

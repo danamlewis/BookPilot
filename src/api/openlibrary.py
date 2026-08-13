@@ -5,6 +5,13 @@ import re
 from typing import Dict, List, Optional
 from pathlib import Path
 import json
+import os
+import tempfile
+import threading
+
+
+class OpenLibraryAPIError(requests.RequestException):
+    """An Open Library request failed in a way callers must not treat as empty data."""
 
 
 def sanitize_filename(text: str) -> str:
@@ -44,17 +51,52 @@ class OpenLibraryClient:
     
     BASE_URL = "https://openlibrary.org"
     CACHE_DIR = Path(__file__).parent.parent.parent / 'data' / 'cache' / 'openlibrary'
+    DEFAULT_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+    DEFAULT_CLEANUP_SCAN_LIMIT = 2_000
+    DEFAULT_CLEANUP_DELETE_LIMIT = 500
+    _AUTOMATICALLY_CLEANED_DIRS = set()
+    _AUTOMATIC_CLEANUP_LOCK = threading.Lock()
     
-    def __init__(self, cache_enabled=True, rate_limit_delay=0.5):
+    def __init__(self, cache_enabled=True, rate_limit_delay=0.5,
+                 cache_ttl_seconds=DEFAULT_CACHE_TTL_SECONDS,
+                 cache_dir=None, cleanup_stale_cache=True,
+                 cleanup_scan_limit=DEFAULT_CLEANUP_SCAN_LIMIT,
+                 cleanup_delete_limit=DEFAULT_CLEANUP_DELETE_LIMIT):
         """
         Args:
             cache_enabled: Enable response caching
             rate_limit_delay: Seconds to wait between API calls
+            cache_ttl_seconds: Maximum age of cached responses. Set to None
+                to disable expiry (not recommended for catalog refreshes).
+            cache_dir: Optional cache directory override, primarily for tests.
+            cleanup_stale_cache: Remove a bounded number of expired cache
+                files on the first cache use for this directory in the process.
+            cleanup_scan_limit: Maximum cache files inspected per cleanup.
+            cleanup_delete_limit: Maximum stale files deleted per cleanup.
         """
         self.cache_enabled = cache_enabled
         self.rate_limit_delay = rate_limit_delay
-        if cache_enabled:
-            self.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else self.CACHE_DIR
+        self.cleanup_scan_limit = max(0, int(cleanup_scan_limit))
+        self.cleanup_delete_limit = max(0, int(cleanup_delete_limit))
+        self.automatic_cleanup_enabled = cleanup_stale_cache
+        # Defer all filesystem access until the cache is actually used. This
+        # keeps code that only constructs a client from touching the cache path.
+
+    def _cleanup_stale_cache_once(self) -> Dict[str, int]:
+        """Run automatic cleanup at most once per cache directory per process."""
+        if (self.cache_ttl_seconds is None or self.cleanup_scan_limit == 0
+                or self.cleanup_delete_limit == 0):
+            return {'scanned': 0, 'deleted': 0}
+        cache_directory = self.cache_dir.resolve()
+        with self._AUTOMATIC_CLEANUP_LOCK:
+            if cache_directory in self._AUTOMATICALLY_CLEANED_DIRS:
+                return {'scanned': 0, 'deleted': 0}
+            # Claim the directory before starting cleanup so concurrent cache
+            # access cannot launch a second sweep.
+            self._AUTOMATICALLY_CLEANED_DIRS.add(cache_directory)
+        return self.cleanup_stale_cache()
     
     def _get_cache_path(self, cache_key: str) -> Path:
         """
@@ -68,42 +110,112 @@ class OpenLibraryClient:
         """
         # Sanitize cache key for filename
         safe_key = sanitize_filename(cache_key)
-        return self.CACHE_DIR / f"{safe_key}.json"
+        return self.cache_dir / f"{safe_key}.json"
     
-    def _get_cached(self, cache_key: str) -> Optional[Dict]:
-        """Get cached response"""
+    def _get_cached(self, cache_key: str, fresh: bool = False) -> Optional[Dict]:
+        """Get a response only when its cache entry is still fresh."""
         if not self.cache_enabled:
+            return None
+        if self.automatic_cleanup_enabled:
+            self._cleanup_stale_cache_once()
+        if fresh:
             return None
         
         cache_path = self._get_cache_path(cache_key)
         if cache_path.exists():
             try:
+                if self._is_stale(cache_path):
+                    cache_path.unlink(missing_ok=True)
+                    return None
                 with open(cache_path, 'r') as f:
                     return json.load(f)
-            except:
+            except (OSError, ValueError, TypeError):
                 return None
         return None
+
+    def _is_stale(self, cache_path: Path, now: Optional[float] = None) -> bool:
+        """Return whether a cache file is older than the configured TTL."""
+        if self.cache_ttl_seconds is None:
+            return False
+        try:
+            age = (time.time() if now is None else now) - cache_path.stat().st_mtime
+        except OSError:
+            return True
+        return age >= max(0, self.cache_ttl_seconds)
+
+    def cleanup_stale_cache(self, scan_limit: Optional[int] = None,
+                            delete_limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Remove expired cache files without allowing cleanup work to grow unbounded.
+
+        The returned counts are useful for diagnostics and tests. Only ``.json``
+        response files are considered; temporary and unrelated files are left alone.
+        """
+        if not self.cache_enabled or self.cache_ttl_seconds is None:
+            return {'scanned': 0, 'deleted': 0}
+
+        max_scan = self.cleanup_scan_limit if scan_limit is None else max(0, int(scan_limit))
+        max_delete = self.cleanup_delete_limit if delete_limit is None else max(0, int(delete_limit))
+        if max_scan == 0 or max_delete == 0:
+            return {'scanned': 0, 'deleted': 0}
+
+        scanned = 0
+        deleted = 0
+        now = time.time()
+        try:
+            entries = os.scandir(self.cache_dir)
+        except OSError:
+            return {'scanned': 0, 'deleted': 0}
+
+        with entries:
+            for entry in entries:
+                if scanned >= max_scan or deleted >= max_delete:
+                    break
+                if not entry.is_file(follow_symlinks=False) or not entry.name.endswith('.json'):
+                    continue
+                scanned += 1
+                path = Path(entry.path)
+                if self._is_stale(path, now=now):
+                    try:
+                        path.unlink()
+                        deleted += 1
+                    except OSError:
+                        pass
+        return {'scanned': scanned, 'deleted': deleted}
     
     def _set_cache(self, cache_key: str, data: Dict):
         """Cache response"""
         if not self.cache_enabled:
             return
+        if self.automatic_cleanup_enabled:
+            self._cleanup_stale_cache_once()
         
         cache_path = self._get_cache_path(cache_key)
+        temporary_path = None
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, 'w') as f:
-                json.dump(data, f, indent=2)
-        except:
-            pass
+            with tempfile.NamedTemporaryFile(
+                mode='w', dir=cache_path.parent, prefix=f'.{cache_path.name}.',
+                suffix='.tmp', delete=False
+            ) as cache_file:
+                temporary_path = Path(cache_file.name)
+                json.dump(data, cache_file, indent=2)
+            os.replace(temporary_path, cache_path)
+        except (OSError, TypeError, ValueError):
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
     
-    def _request(self, endpoint: str, params: Dict = None) -> Dict:
-        """Make API request with caching and rate limiting"""
+    def _request(self, endpoint: str, params: Dict = None,
+                 fresh: bool = False) -> Dict:
+        """Make an API request, optionally bypassing the response cache."""
         cache_key = f"{endpoint}_{params or ''}"
         
         # Check cache
-        cached = self._get_cached(cache_key)
-        if cached:
+        cached = self._get_cached(cache_key, fresh=fresh)
+        if cached is not None:
             return cached
         
         # Rate limiting
@@ -124,52 +236,84 @@ class OpenLibraryClient:
             is_404 = (response is not None and getattr(response, 'status_code', None) == 404) or '404' in str(e)
             if is_404:
                 return {}
-            print(f"API request failed: {endpoint} - {e}")
-            return {}
+            raise OpenLibraryAPIError(f"Open Library request failed for {endpoint}: {e}") from e
     
-    def search_author(self, author_name: str) -> List[Dict]:
+    def search_author(self, author_name: str, *, fresh: bool = False) -> List[Dict]:
         """Search for author by name"""
         endpoint = "/search/authors.json"
         params = {'q': author_name}
-        result = self._request(endpoint, params)
+        result = self._request(endpoint, params, fresh=fresh)
         return result.get('docs', [])
     
-    def get_author_works(self, author_key: str, limit: int = 100) -> List[Dict]:
+    def get_author_works(self, author_key: str, limit: Optional[int] = 100,
+                         *, fresh: bool = False, page_size: int = 200) -> List[Dict]:
         """
-        Get all works by an author
+        Get works by an author, following Open Library pagination as needed.
         
         Args:
             author_key: Open Library author key (e.g., "/authors/OL123456A")
-            limit: Maximum number of works to return
+            limit: Maximum number of works to return, or None for every work.
+            fresh: Bypass cached pages and fetch them from Open Library.
+            page_size: Maximum number of works requested per API page.
         """
+        if limit is not None and limit < 0:
+            raise ValueError("limit must be non-negative or None")
+        if page_size <= 0:
+            raise ValueError("page_size must be positive")
+        if limit == 0:
+            return []
+
         # Ensure author_key starts with /
         if not author_key.startswith('/'):
             author_key = f"/authors/{author_key}"
         endpoint = f"{author_key}/works.json"
-        params = {'limit': limit}
-        result = self._request(endpoint, params)
-        return result.get('entries', [])
+        works = []
+        offset = 0
+
+        while limit is None or len(works) < limit:
+            remaining = None if limit is None else limit - len(works)
+            request_limit = page_size if remaining is None else min(page_size, remaining)
+            params = {'limit': request_limit, 'offset': offset}
+            result = self._request(endpoint, params, fresh=fresh)
+            entries = result.get('entries', [])
+            if not isinstance(entries, list) or not entries:
+                break
+
+            works.extend(entries)
+            offset += len(entries)
+
+            try:
+                total_size = int(result.get('size'))
+            except (TypeError, ValueError):
+                total_size = None
+
+            if total_size is not None and offset >= total_size:
+                break
+            if total_size is None and len(entries) < request_limit:
+                break
+
+        return works if limit is None else works[:limit]
     
-    def get_work_details(self, work_key: str) -> Dict:
+    def get_work_details(self, work_key: str, *, fresh: bool = False) -> Dict:
         """Get detailed information about a work"""
         # Ensure work_key starts with /
         if not work_key.startswith('/'):
             work_key = f"/works/{work_key}"
         endpoint = f"{work_key}.json"
-        return self._request(endpoint)
+        return self._request(endpoint, fresh=fresh)
     
-    def get_book_by_isbn(self, isbn: str) -> Optional[Dict]:
+    def get_book_by_isbn(self, isbn: str, *, fresh: bool = False) -> Optional[Dict]:
         """Get book information by ISBN"""
         endpoint = "/isbn/{isbn}.json".format(isbn=isbn)
-        return self._request(endpoint)
+        return self._request(endpoint, fresh=fresh)
     
-    def get_editions(self, work_key: str) -> List[Dict]:
+    def get_editions(self, work_key: str, *, fresh: bool = False) -> List[Dict]:
         """Get all editions of a work"""
         # Ensure work_key starts with /
         if not work_key.startswith('/'):
             work_key = f"/works/{work_key}"
         endpoint = f"{work_key}/editions.json"
-        result = self._request(endpoint, params={'limit': 100})
+        result = self._request(endpoint, params={'limit': 100}, fresh=fresh)
         return result.get('entries', [])
 
 
