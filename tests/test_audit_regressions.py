@@ -80,7 +80,8 @@ class AuditRegressionTests(unittest.TestCase):
         self.assertEqual(result["total_series"], 4)
         self.assertEqual(result["total_standalone"], 1)
         self.assertNotIn("standalone_books", result)
-        self.assertLessEqual(len(statements), 4)
+        # Includes metadata lookups for ignored series and Hardcover enrichment.
+        self.assertLessEqual(len(statements), 6)
 
     def test_single_author_series_analysis_handles_a_missing_normalized_name(self):
         author = Author(name="Display Author", normalized_name="Display Author")

@@ -30,34 +30,35 @@ BookPilot is a tool to help you analyze your Libby reading history and generate 
 
 Recommendations are generated when you open the Audiobook or Ebook tabs. The command-line workflows remain available for advanced maintenance and automation.
 
+The optional series tools use Hardcover's API and require a personal Hardcover
+account and API token. BookPilot does not provide a shared token. Follow
+[Connect Hardcover for series data](#connect-hardcover-for-series-data-optional)
+before using **Series Reconciliation** or Hardcover-backed series enrichment.
+
 That’s it. For updates when you have new loans, see [Regular Updates (Existing User)](#regular-updates-existing-user) below.
 
 ---
 
 ## Features
 
-### v0.2 (Current)
-- **CSV Import**: Ingest Libby export CSV files
-- **Format Detection**: Automatically detect audiobooks vs ebooks
-- **History-backed Author Catalogs**: Fetch Open Library catalogs only for authors represented in your imported reading history. Catalog-only authors are skipped unless you explicitly review and prune them.
-- **Organization Filtering**: Publisher/company-style author credits are retained in reading history but excluded from catalog refreshes.
-- **Series Analysis**: Identify partially read series, missing series, and standalone books
-- **Cross-format Read Matching**: A book already read as an ebook is not recommended as an audiobook, and vice versa. Edition suffixes and common title variations are normalized before matching.
-- **Audiobook Recommendations**: Unread audiobooks from authors in your reading history
-- **Ebook Recommendations**: Unread ebooks from authors in your reading history
-- **Web Interface**: Interactive web UI for exploring recommendations, running common library updates, following job progress, and reviewing added titles or errors when a catalog refresh finishes.
-- **Command-line Tools**: Command-line tools for core operations
-- **Tracking**: Track last Libby import and catalog check dates
-- **User Feedback**: Thumbs up/down on recommendations, flag books as already read/duplicate/non-English. Thumbs down/flagged won't show in your to-read section.
-- **Personal Recommendation Model**: Creates an explainable recommendation score from reading history, already-read matches, author affinity, topics, series context, saved books, and existing feedback/suppression data.
-- **Recommendation Controls**: Search and filter recommendations by match tier or likely non-read status, and sort by score high-to-low, score low-to-high, author activity, or title.
-- **Course-material batching**: Detects likely textbooks, access cards, workbooks, loose-leaf editions, and similar catalog artifacts so they can be reviewed together as likely non-reads.
-- **Books to Read List**: Curated list of books you've given thumbs up
-- **Expanded Title Matching**: Detects duplicates and already-read works across formats and common edition/title variations, including prefixes, series annotations, and audiobook/print suffixes.
-- **Improved Non-English Detection**: Combines conservative language rules with patterns learned from manually tagged titles; high-confidence matches can be removed automatically while medium-confidence matches remain reviewable.
-- **Automatic Cleanup**: Removes non-English titles, duplicates, box sets, bundles, and multi-book packages. Unsupported authors can be reviewed and pruned with the separate cleanup command.
-- **Duplicate Author Detection**: Automatically detects and helps merge duplicate author records
-- **Optimized Catalog Fetching**: Skips existing books and old publications to reduce API calls by 50-80%
+### v0.3 (Current)
+- **Libby History Import**: Import a Libby reading-history CSV, recognize ebook and audiobook loans, add new reads without duplicating prior imports, and track the most recent import.
+- **Guided Library Updates**: Use **Update Library** to import history, **Check for New Books** from the last year, or **Refresh All Author Catalogs**. Long-running updates show persistent progress plus a summary of additions and errors.
+- **History-backed Author Catalogs**: Fetch Open Library catalogs only for authors represented in reading history. Publisher and organization credits are retained as reads but excluded from author catalog refreshes.
+- **Format-aware Recommendations**: Keep separate **Audiobooks** and **Ebooks** views while excluding a work already read in either format. Expanded title normalization handles common edition suffixes, series annotations, packages, and other title variations.
+- **Personal Match Scores**: Rank likely interests using reading history, author affinity, topic overlap, series context, saved books, and prior review decisions, with a short explanation attached to each score.
+- **Recommendation Browsing**: Search by author or title; filter to **Strong matches**, **Possible + strong**, **Books only**, or **Likely non-reads**; and sort by **Score High–Low**, **Score Low–High**, **Author Count**, or **Author A–Z**.
+- **Recommendation Review Actions**: Use **Save** to add a title to **To Read**, **Pass** to remove an unwanted suggestion, **already read** to record a prior read, **not english** to suppress a mismatched-language edition, **recategorize** to switch Fiction/Non-Fiction classification, or **duplicate** to remove a duplicate record.
+- **Author Review Controls**: **Hide** all recommendations from an author and restore them later with **Show**.
+- **Books to Read**: Review titles collected with **Save**, grouped by author. Passed, duplicate, and already-read books are removed from this list.
+- **Improved Series Analysis**: Identify partially read, completed, and not-started series; show missing books in reading order; and distinguish series titles from standalone books even when the original catalog metadata is incomplete.
+- **Hardcover Series Reconciliation**: With the user's own optional Hardcover API token, compare visible ebook and audiobook recommendations with Hardcover's structured series data. BookPilot reviews high-volume authors in manageable batches, maps recommendations and known reads into series order, and highlights gaps or books that may have been read before Libby history was available.
+- **Series Review Actions**: **Mark read** for one title, mark all matched recommendations or a full series as read, or choose **Ignore for now** for an irrelevant series. Ignoring also applies **Pass** to matched ebook and audiobook recommendations; ignored series can be restored later without undoing those passes.
+- **Cached and Resumable Series Checks**: Save reconciliation progress locally, reuse cached Hardcover results, continue with the next author batch, and avoid repeating completed API work unnecessarily.
+- **Likely Non-read Batching**: Detect textbooks, access cards, workbooks, loose-leaf editions, and similar catalog artifacts so they can be reviewed together with the **Likely non-reads** filter.
+- **Language and Catalog Cleanup**: Learn conservative language signals from **not english** decisions, automatically remove high-confidence non-English editions and multi-book packages, and provide duplicate-title, duplicate-author, and unsupported-author cleanup tools.
+- **Local-first Storage and Tracking**: Keep reading history, recommendation decisions, ignored series, update status, and API caches in the local SQLite database; personal data and secrets remain outside Git.
+- **Command-line Tools**: Retain CLI workflows for imports, catalog maintenance, recommendations, series analysis, duplicate-author merging, and advanced cleanup.
 
 ## Setup
 
@@ -81,6 +82,78 @@ That’s it. For updates when you have new loans, see [Regular Updates (Existing
 3. **Data directory**: The repo includes a `data/` directory (via `data/.gitkeep`) so the project runs out of the box. Your database and API cache are created on first run and are **gitignored**, so your personal data is never committed. You do not need to create `data/` or `data/cache/` manually.
 
 **Your data stays local:** CSV files, the SQLite database (`data/bookpilot.db`), the API cache (`data/cache/`), and any `.env` or backup files are ignored by git. Nothing you ingest or generate is ever committed when you push or share the repo.
+
+### Connect Hardcover for series data (optional)
+
+BookPilot uses the [Hardcover API](https://api.hardcover.app/) to look up
+structured author, series, book-order, and series-membership data. These lookups
+power **Series Reconciliation** and the Hardcover-backed enrichment in the
+**Series** tab. The ordinary Libby import and recommendation pages still work
+without Hardcover, but those series features will ask you to configure a token.
+
+Hardcover authenticates API requests with a token tied to an individual
+Hardcover account. Each BookPilot user therefore needs to create their own
+Hardcover account and save their own token locally:
+
+1. Create an account at [hardcover.app](https://hardcover.app/) or sign in to
+   your existing account. You do not need to copy your Libby history into
+   Hardcover for BookPilot's series lookups.
+2. While signed in, open Hardcover's
+   [Account API page](https://hardcover.app/account/api) and copy the API token
+   shown there. Treat it like a password: do not paste it into an issue, commit,
+   screenshot, or shared message.
+3. In the root of your local BookPilot checkout—the same folder as this
+   README—create a file named `.env.local` and add exactly one setting:
+
+   ```dotenv
+   HARDCOVER_API_TOKEN=replace-this-with-your-own-token
+   ```
+
+   A token copied with or without the `Bearer ` prefix is accepted; BookPilot
+   normalizes either form. Do not add quotation marks unless they are part of
+   the token.
+4. From the BookPilot directory, verify the token without displaying it:
+
+   ```bash
+   python scripts/test_hardcover_api.py
+   ```
+
+   A successful check prints the Hardcover username that authenticated. If it
+   says the token is missing, confirm the filename is exactly `.env.local` and
+   that it is in the repository root. If authentication fails, copy a current
+   token again from the Hardcover API page.
+5. Start BookPilot, or restart it if it was already running, so the Python
+   server loads the new environment value:
+
+   ```bash
+   python web/app.py
+   ```
+
+   Then open [http://localhost:5000](http://localhost:5000). A browser refresh
+   alone is not enough after adding or changing the token.
+
+The token is read by the local Python server and sent only to Hardcover's API
+in the authorization header; it is not sent to BookPilot's browser interface.
+BookPilot's Hardcover integration currently makes read-only GraphQL queries—it
+does not edit the user's Hardcover library. An explicitly exported
+`HARDCOVER_API_TOKEN` shell variable takes precedence over `.env.local`.
+
+#### Confirm the token will not be committed
+
+BookPilot's `.gitignore` explicitly ignores `.env`, `.env.local`, and
+`.env.*.local`. You can confirm the protection in your own checkout:
+
+```bash
+git check-ignore -v .env.local
+git status --short --ignored .env.local
+```
+
+The first command should identify the matching `.gitignore` rule, and the
+second should show `!! .env.local`, meaning Git is ignoring it. Before any
+commit, also review `git diff --cached` and never stage an environment or token
+file. If a secret was ever committed before an ignore rule was added, ignoring
+it afterward is not sufficient: revoke that token in Hardcover, remove the
+file from Git tracking, and replace the token.
 
 ### If something is missing after clone
 
@@ -303,6 +376,42 @@ plus known-read books used as series anchors. It does not mark books read or
 change the database. Inferred series and prior-read likelihood are included as
 evidence for manual review.
 
+For a structured series-by-series comparison, open the **Series** tab and use
+**Series Reconciliation**. It selects authors with more than five unique visible
+ebook/audiobook recommendations, looks up their ordered series through
+Hardcover, and compares the full relevant series with local reads and
+recommendations. Nothing runs automatically.
+
+Runs default to ten authors, highest recommendation count first. Use **Run next
+batch** to continue without repeating authors already checked, or **Run again**
+to discard the saved comparison and start from the current recommendation set.
+Results are stored in the local BookPilot database and survive page refreshes.
+Use **Ignore for now** on a series you do not want included in later lookups.
+Ignoring also applies **Pass** to its unread recommendation titles in both
+ebook and audiobook formats, preventing those works from reappearing in either
+recommendation list. Restoring the series does not erase that explicit Pass
+feedback.
+
+To backfill Pass feedback for series ignored by an older BookPilot version,
+preview and then apply the source-backed matches:
+
+```bash
+python scripts/backfill_ignored_series_passes.py
+python scripts/backfill_ignored_series_passes.py --apply
+```
+Ignored Hardcover series IDs remain excluded from future runs until restored
+from the **Ignored series** control.
+
+The **Reading progress** view can also build a complete Hardcover-backed series
+catalog for every locally partial or not-started series. The first build groups
+series by author and can use two API calls per uncached author (author resolution
+plus the complete series list). BookPilot stays below Hardcover's 60-request per
+minute limit by targeting 50 requests per minute, saves progress after every
+author, and shows a live call count and estimated time remaining. Cached data is
+kept for 180 days and is used without API calls on normal page loads. A later
+manual full refresh normally needs only one call per resolved author because the
+cached Hardcover author ID is reused.
+
 #### Check Status
 ```bash
 python scripts/bookpilot.py status
@@ -398,7 +507,7 @@ python scripts/prune_historyless_authors.py --execute
 2. Finds unread books by your authors
 3. Filters out:
    - Books you've already read in either ebook or audiobook format
-   - Books marked as thumbs down, duplicate, or non-English
+   - Books marked **Pass**, **duplicate**, or **not english**
    - Hidden authors
 4. Produces an explainable personal-fit score using author affinity, topic overlap, saved-book signals, series context, and metadata quality
 5. If `--save`, stores in database for web UI display
@@ -418,12 +527,17 @@ python web/app.py
 The web interface provides:
 - **Status**: Dashboard with book counts, last Libby import, last catalog check, and live Library update progress
 - **Update Library**: Import a Libby CSV, check the last year for new books, or run a confirmed full catalog refresh. Only one update runs at a time; completed progress survives page refresh, and result summaries show what changed.
-- **Series**: Partially read and not-started series (ebooks), with collapse/expand and sort (by count or A–Z)
-- **Audiobook / Ebook recommendations**: Search recommendations; filter to strong matches, possible-or-better matches, ordinary books, or likely non-reads; and sort by score high-to-low, score low-to-high, author activity, or title. Recommendations can also be grouped by author, collapsed/expanded, and hidden or restored. Generated automatically when you open the tab.
-- **Books to Read**: Thumbs-up recommendations in one list
-- **Feedback** on each recommendation: thumbs up/down, already read, duplicate, non-English, recategorize
+- **Series → Reading progress**: Review partially read and not-started series, build complete Hardcover-backed series catalogs, mark one book or a full series read, and ignore or restore a series.
+- **Series → Reconciliation**: Check authors with more than five visible recommendations against structured Hardcover series order in bounded batches. Compare recommendations, reads, and surrounding gaps; use **Mark matched recommendations read** or **Ignore for now**; and manage ignored series from the same view.
+- **Audiobook / Ebook recommendations**: Search by author or title; filter with **Strong matches**, **Possible + strong**, **Books only**, or **Likely non-reads**; and sort with **Score High–Low**, **Score Low–High**, **Author Count**, or **Author A–Z**. Author-grouped views can be collapsed, expanded, hidden, and restored. Recommendations are generated when the tab is opened.
+- **Books to Read**: Recommendations collected with **Save**, grouped by author
+- **Recommendation actions**: **Save**, **Pass**, **already read**, **not english**, **recategorize**, and **duplicate**
 
 **Note:** Recommendations are generated on-demand when you click the recommendations tabs. No need to run `recommend` commands separately unless you prefer command-line access.
+
+Restart a running BookPilot server after pulling code that adds or changes UI
+routes. Refreshing the page is enough after reading-history or recommendation
+data changes.
 
 Database cleanup, duplicate-author merging, author repair, and other destructive or expert review scripts intentionally remain command-line-only.
 

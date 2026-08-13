@@ -1,5 +1,6 @@
 """BookPilot Web Interface - MVP"""
 import csv
+import os
 from flask import Flask, render_template, jsonify, request, g
 from pathlib import Path
 import sys
@@ -14,21 +15,53 @@ from sqlalchemy.exc import OperationalError
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.models import init_db, get_session, SystemMetadata, Book, Author, Recommendation, migrate_database
+from src.local_env import load_local_env
 from src.ingest import ingest_csv
 from src.catalog import fetch_all_author_catalogs
-from src.series import analyze_all_series
+from src.series import (
+    analyze_all_series,
+    ignore_progress_series,
+    restore_progress_series,
+)
+from src.series_review import load_visible_recommendation_candidates
+from src.series_reconciliation import (
+    DEFAULT_BATCH_SIZE,
+    MAX_BATCH_SIZE,
+    MIN_RECOMMENDATIONS,
+    eligible_reconciliation_authors,
+    ignore_series,
+    load_ignored_series,
+    load_reconciliation_result,
+    pass_titles_for_both_formats,
+    record_ignored_series_passes,
+    restore_series,
+    run_series_reconciliation,
+    save_reconciliation_result,
+)
+from src.api.hardcover import HardcoverClient
+from src.series_enrichment import (
+    REQUEST_INTERVAL_SECONDS,
+    record_hardcover_book_action,
+    run_enrichment,
+)
 from src.recommend import recommend_audiobooks, recommend_new_books
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from web.jobs import JobAlreadyRunning, JobManager
 
 
+PROJECT_ROOT = Path(__file__).parent.parent
+load_local_env(PROJECT_ROOT / '.env.local')
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'bookpilot-dev'  # Flask expects this; this app does not use Flask sessions or login
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+app.config['HARDCOVER_API_TOKEN'] = os.environ.get('HARDCOVER_API_TOKEN', '')
 
-DB_PATH = Path(__file__).parent.parent / 'data' / 'bookpilot.db'
+DB_PATH = PROJECT_ROOT / 'data' / 'bookpilot.db'
 JOB_MANAGER = JobManager()
+SERIES_RECONCILIATION_JOB_MANAGER = JobManager()
+SERIES_ENRICHMENT_JOB_MANAGER = JobManager()
 _INITIALIZED_DATABASES = set()
 _DATABASE_INIT_LOCK = threading.Lock()
 
@@ -178,6 +211,29 @@ def _recommendation_action_response(
         session.rollback()
         return jsonify({'success': False, 'error': str(exc)}), 500
 
+    reconciliation_status = None
+    if update_values.get('already_read'):
+        reconciliation_status = 'read'
+    elif any(update_values.get(key) for key in ('thumbs_down', 'duplicate', 'non_english')):
+        reconciliation_status = 'other'
+    if reconciliation_status:
+        saved_result = load_reconciliation_result(session)
+        changed = False
+        if saved_result:
+            title_key = title.casefold().strip()
+            author_key = author.casefold().strip()
+            for author_result in saved_result.get('authors') or []:
+                if str(author_result.get('author') or '').casefold().strip() != author_key:
+                    continue
+                for series in author_result.get('series') or []:
+                    for book in series.get('books') or []:
+                        if str(book.get('local_title') or '').casefold().strip() == title_key:
+                            book['status'] = reconciliation_status
+                            book['formats'] = []
+                            changed = True
+            if changed:
+                save_reconciliation_result(session, saved_result)
+
     suffix = ' (retried)' if retried else ''
     return jsonify({
         'success': True,
@@ -277,6 +333,59 @@ def _run_catalog_job(*, force_refresh, only_recent, recent_years, progress):
         _close_database(session, engine)
 
 
+def _run_series_reconciliation_job(*, batch_size, reset, token, progress):
+    engine = None
+    session = None
+    try:
+        engine = init_db(str(DB_PATH))
+        session = get_session(engine)
+        candidates = load_visible_recommendation_candidates(session)
+        result = run_series_reconciliation(
+            session,
+            HardcoverClient(token),
+            candidates,
+            batch_size=batch_size,
+            reset=reset,
+            progress_callback=progress,
+        )
+        matched = sum(row.get('matched_recommendations', 0) for row in result['authors'])
+        result.update({
+            'kind': 'series_reconciliation',
+            'matched_recommendations': matched,
+            'message': (
+                f"Series reconciliation checked {result['processed_authors']} of "
+                f"{result['eligible_authors']} eligible authors and matched "
+                f"{matched} recommendations."
+            ),
+        })
+        return result
+    finally:
+        _close_database(session, engine)
+
+
+def _run_series_enrichment_job(*, force_refresh, token, progress):
+    engine = None
+    session = None
+    try:
+        engine = init_db(str(DB_PATH))
+        session = get_session(engine)
+        local_series = analyze_all_series(
+            session, format_filter=None, include_enrichment=False,
+        )['series']
+        # The provider calls the callback after each successful request. Its
+        # 1.2-second interval targets 50/minute under Hardcover's 60/minute cap.
+        provider = HardcoverClient(token, rate_limit_delay=REQUEST_INTERVAL_SECONDS)
+        return run_enrichment(
+            session,
+            provider,
+            local_series,
+            force_refresh=force_refresh,
+            progress_callback=progress,
+        )
+    finally:
+        _close_database(session, engine)
+
+
 def _job_response(job, status_code=202):
     return jsonify({'job': job}), status_code
 
@@ -365,7 +474,307 @@ def api_series():
     session = _request_database()
     format_filter = request.args.get('format', None)
     result = analyze_all_series(session, format_filter=format_filter)
+    result['hardcover_configured'] = bool(str(app.config.get('HARDCOVER_API_TOKEN') or '').strip())
     return jsonify(result)
+
+
+@app.route('/api/series/ignored', methods=['POST'])
+def api_update_ignored_progress_series():
+    """Temporarily hide or restore one locally catalogued series."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or '').strip()
+    author = str(data.get('author') or '').strip()
+    name = str(data.get('name') or '').strip()
+    if action not in {'ignore', 'restore'} or not author or not name:
+        return jsonify({'success': False, 'error': 'Missing series, author, or action.'}), 400
+    session = _request_database()
+    if action == 'ignore':
+        progress = analyze_all_series(session, format_filter=None)
+        matching_series = next((
+            series for series in progress['series']
+            if series['author'].casefold().strip() == author.casefold().strip()
+            and series['series_name'].casefold().strip() == name.casefold().strip()
+        ), None)
+        passed_titles = pass_titles_for_both_formats(
+            session, author=author,
+            titles=[book['title'] for book in (matching_series or {}).get('unread_books', [])],
+        )
+        ignored = ignore_progress_series(session, author=author, name=name)
+        message = f'Ignoring {name}; passed {len(passed_titles)} unread title(s) in both formats.'
+    else:
+        ignored = restore_progress_series(session, author=author, name=name)
+        message = f'Restored {name} to Reading progress.'
+        passed_titles = []
+    return jsonify({
+        'success': True,
+        'ignored_series': ignored,
+        'passed_titles': passed_titles,
+        'passed_count': len(passed_titles),
+        'message': message,
+    })
+
+
+@app.route('/api/series/hardcover-book-action', methods=['POST'])
+def api_hardcover_series_book_action():
+    """Hide one exact Hardcover series membership without suppressing same-title rows."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or '').strip()
+    title = str(data.get('title') or '').strip()
+    author = str(data.get('author') or '').strip()
+    try:
+        series_id = int(data.get('series_id'))
+        book_id = int(data.get('book_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Missing Hardcover series or book ID.'}), 400
+    if action not in {'duplicate', 'non_english'} or series_id < 1 or book_id < 1:
+        return jsonify({'success': False, 'error': 'Invalid Hardcover book action.'}), 400
+    if not title or not author:
+        return jsonify({'success': False, 'error': 'Missing title or author.'}), 400
+    actions = record_hardcover_book_action(
+        _request_database(),
+        action=action,
+        series_id=series_id,
+        book_id=book_id,
+        position=data.get('position'),
+        title=title,
+        author=author,
+    )
+    return jsonify({
+        'success': True,
+        'action': action,
+        'hidden_membership': {
+            'series_id': series_id,
+            'book_id': book_id,
+            'position': data.get('position'),
+        },
+        'saved_actions': len(actions),
+    })
+
+
+@app.route('/api/jobs/series-enrichment/status')
+def api_series_enrichment_job_status():
+    job = SERIES_ENRICHMENT_JOB_MANAGER.snapshot()
+    return jsonify({
+        'job': job,
+        'active': bool(job and job['state'] in {'queued', 'running'}),
+    })
+
+
+@app.route('/api/jobs/series-enrichment', methods=['POST'])
+def api_start_series_enrichment_job():
+    token = str(app.config.get('HARDCOVER_API_TOKEN') or '').strip()
+    if not token:
+        return jsonify({'error': 'Hardcover is not configured. Set HARDCOVER_API_TOKEN first.'}), 400
+    if SERIES_RECONCILIATION_JOB_MANAGER.is_active():
+        return jsonify({'error': 'Wait for the current Hardcover reconciliation to finish.'}), 409
+    force_refresh = bool((request.get_json(silent=True) or {}).get('force_refresh', False))
+    try:
+        job = SERIES_ENRICHMENT_JOB_MANAGER.start(
+            'series_enrichment',
+            'Reading Progress Enrichment',
+            lambda progress: _run_series_enrichment_job(
+                force_refresh=force_refresh,
+                token=token,
+                progress=progress,
+            ),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        return jsonify({'error': 'Series enrichment is already running.', 'job': exc.job}), 409
+
+
+@app.route('/api/series-reconciliation')
+def api_series_reconciliation():
+    """Return eligibility and the most recently saved structured comparison."""
+    session = _request_database()
+    candidates = load_visible_recommendation_candidates(session)
+    eligible = eligible_reconciliation_authors(candidates)
+    return jsonify({
+        'configured': bool(str(app.config.get('HARDCOVER_API_TOKEN') or '').strip()),
+        'threshold': MIN_RECOMMENDATIONS,
+        'default_batch_size': DEFAULT_BATCH_SIZE,
+        'max_batch_size': MAX_BATCH_SIZE,
+        'eligible_authors': eligible,
+        'ignored_series': load_ignored_series(session),
+        'result': load_reconciliation_result(session),
+    })
+
+
+@app.route('/api/series-reconciliation/ignored', methods=['POST'])
+def api_update_ignored_series():
+    """Temporarily exclude or restore one stable Hardcover series ID."""
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or '').strip()
+    try:
+        series_id = int(data.get('series_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Missing Hardcover series ID.'}), 400
+    if series_id < 1 or action not in {'ignore', 'restore'}:
+        return jsonify({'success': False, 'error': 'Invalid ignored-series action.'}), 400
+
+    session = _request_database()
+    if action == 'ignore':
+        name = str(data.get('name') or '').strip()
+        author = str(data.get('author') or '').strip()
+        if not name or not author:
+            return jsonify({'success': False, 'error': 'Missing series name or author.'}), 400
+        saved_result = load_reconciliation_result(session) or {}
+        matched_titles = []
+        for author_result in saved_result.get('authors') or []:
+            if str(author_result.get('author') or '').casefold().strip() != author.casefold().strip():
+                continue
+            for series in author_result.get('series') or []:
+                if int(series.get('hardcover_series_id') or 0) != series_id:
+                    continue
+                matched_titles.extend(
+                    str(book.get('local_title') or '').strip()
+                    for book in series.get('books') or []
+                    if book.get('status') == 'recommendation' and book.get('local_title')
+                )
+        passed_titles = pass_titles_for_both_formats(session, author=author, titles=matched_titles)
+        ignored = ignore_series(
+            session, series_id=series_id, name=name, author=author,
+        )
+        ignored = record_ignored_series_passes(
+            session, series_id=series_id, titles=passed_titles,
+        )
+        message = f'Ignoring {name}; passed {len(passed_titles)} matched title(s) in both formats.'
+    else:
+        ignored = restore_series(session, series_id)
+        passed_titles = []
+        message = 'Series restored. Run reconciliation again when you want to include it.'
+    return jsonify({
+        'success': True,
+        'ignored_series': ignored,
+        'passed_titles': passed_titles,
+        'passed_count': len(passed_titles),
+        'message': message,
+    })
+
+
+@app.route('/api/jobs/series-reconciliation/status')
+def api_series_reconciliation_job_status():
+    job = SERIES_RECONCILIATION_JOB_MANAGER.snapshot()
+    return jsonify({
+        'job': job,
+        'active': bool(job and job['state'] in {'queued', 'running'}),
+    })
+
+
+@app.route('/api/jobs/series-reconciliation', methods=['POST'])
+def api_start_series_reconciliation_job():
+    token = str(app.config.get('HARDCOVER_API_TOKEN') or '').strip()
+    if not token:
+        return jsonify({
+            'error': (
+                'Hardcover is not configured. Set HARDCOVER_API_TOKEN before starting BookPilot.'
+            ),
+        }), 400
+    if SERIES_ENRICHMENT_JOB_MANAGER.is_active():
+        return jsonify({'error': 'Wait for the current Hardcover series enrichment to finish.'}), 409
+    data = request.get_json(silent=True) or {}
+    try:
+        batch_size = int(data.get('batch_size', DEFAULT_BATCH_SIZE))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Batch size must be a number.'}), 400
+    if batch_size < 1 or batch_size > MAX_BATCH_SIZE:
+        return jsonify({'error': f'Batch size must be between 1 and {MAX_BATCH_SIZE}.'}), 400
+    reset = bool(data.get('reset', True))
+    try:
+        job = SERIES_RECONCILIATION_JOB_MANAGER.start(
+            'series_reconciliation',
+            'Series Reconciliation',
+            lambda progress: _run_series_reconciliation_job(
+                batch_size=batch_size,
+                reset=reset,
+                token=token,
+                progress=progress,
+            ),
+        )
+        return _job_response(job)
+    except JobAlreadyRunning as exc:
+        return jsonify({
+            'error': 'A series reconciliation is already running.',
+            'job': exc.job,
+        }), 409
+
+
+@app.route('/api/series-review/mark-read', methods=['POST'])
+def api_series_review_mark_read():
+    """Mark one title or a complete reviewed series as read in every format."""
+    data = request.get_json(silent=True) or {}
+    author = str(data.get('author') or '').strip()
+    raw_books = data.get('books')
+    if raw_books is None:
+        raw_books = [{'title': data.get('title'), 'formats': data.get('formats')}]
+    if not author or not isinstance(raw_books, list) or not raw_books or len(raw_books) > 250:
+        return jsonify({'success': False, 'error': 'Missing title, author, or recommendation format'}), 400
+
+    operations = set()
+    for raw_book in raw_books:
+        if not isinstance(raw_book, dict):
+            return jsonify({'success': False, 'error': 'Invalid series book payload'}), 400
+        title = str(raw_book.get('title') or '').strip()
+        formats = raw_book.get('formats') or []
+        if isinstance(formats, str):
+            formats = [formats]
+        formats = sorted({str(value).strip() for value in formats} & {'ebook', 'audiobook'})
+        if not title or not formats:
+            return jsonify({'success': False, 'error': 'Missing title, author, or recommendation format'}), 400
+        operations.update((title, format_type) for format_type in formats)
+
+    session = _request_database()
+    now = datetime.utcnow()
+    for attempt in range(4):
+        try:
+            for title, format_type in sorted(operations):
+                session.execute(_recommendation_upsert_statement(
+                    title=title,
+                    author=author,
+                    format_type=format_type,
+                    insert_values={'already_read': True, 'feedback_date': now},
+                    update_values={'already_read': True, 'feedback_date': now},
+                ))
+            session.commit()
+            break
+        except OperationalError as exc:
+            session.rollback()
+            if 'locked' not in str(exc).lower():
+                return jsonify({'success': False, 'error': str(exc)}), 500
+            if attempt == 3:
+                return jsonify({
+                    'success': False,
+                    'error': 'Database is currently locked. Please try again in a moment.',
+                    'retry': True,
+                }), 503
+            time.sleep(0.1 * (2 ** attempt))
+        except Exception as exc:
+            session.rollback()
+            return jsonify({'success': False, 'error': str(exc)}), 500
+
+    title_count = len({title for title, _format in operations})
+    saved_result = load_reconciliation_result(session)
+    if saved_result:
+        marked_titles = {title.casefold().strip() for title, _format in operations}
+        for author_result in saved_result.get('authors') or []:
+            if str(author_result.get('author') or '').casefold().strip() != author.casefold():
+                continue
+            for series in author_result.get('series') or []:
+                for book in series.get('books') or []:
+                    if str(book.get('local_title') or '').casefold().strip() in marked_titles:
+                        book['status'] = 'read'
+                        book['formats'] = []
+        save_reconciliation_result(session, saved_result)
+    return jsonify({
+        'success': True,
+        'titles_marked': title_count,
+        'format_records_marked': len(operations),
+        'formats_marked': sorted({format_type for _title, format_type in operations}),
+        'message': (
+            f'Marked {title_count} title'
+            f'{"s" if title_count != 1 else ""} by {author} as already read'
+        ),
+    })
 
 
 @app.route('/api/recommendations/audiobook')
